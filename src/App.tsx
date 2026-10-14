@@ -5,11 +5,11 @@ import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Data from './pages/Data';
 import Insights from './pages/Insights';
-import Subscription from './pages/Subscription';
-import Settings from './pages/Settings';
-import Layout from './components/Layout';
+import Subscription from './pages/Subscription'; 
+import Settings from './pages/Settings'; 
+import Layout from './components/Layout'; 
 import { Toaster } from 'sonner';
-
+ 
 function App() {
   return (
     <Router>
