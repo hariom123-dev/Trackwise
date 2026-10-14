@@ -9,16 +9,16 @@ import dotenv from "dotenv";
 
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
+const __filename = fileURLToPath(import.meta.url); 
 const __dirname = path.dirname(__filename);
 
 // Validate required environment variables
 const requiredEnvVars = ["GEMINI_API_KEY", "RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET"];
-const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]);
+const missingEnvVars = requiredEnvVars.filter(envVar => !process.env[envVar]); 
 
 if (missingEnvVars.length > 0) {
   console.error(`❌ Missing required environment variables: ${missingEnvVars.join(", ")}`);
-  console.error("Please set all required environment variables before starting the server.");
+  console.error("Please set all required environment variables before starting the server."); 
   process.exit(1);
 }
 
