@@ -20,6 +20,7 @@ export async function apiFetch<T = any>(endpoint: string, options: ApiOptions = 
   }
 
   const token = localStorage.getItem('trackwise_token');
+  const activeWorkspace = localStorage.getItem('trackwise_active_workspace');
 
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -27,6 +28,10 @@ export async function apiFetch<T = any>(endpoint: string, options: ApiOptions = 
 
   if (token) {
     defaultHeaders['Authorization'] = `Bearer ${token}`;
+  }
+
+  if (activeWorkspace) {
+    defaultHeaders['X-Workspace-ID'] = activeWorkspace;
   }
 
   const response = await fetch(url, {

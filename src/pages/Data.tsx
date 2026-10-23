@@ -24,10 +24,10 @@ import {
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
 import * as XLSX from 'xlsx';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { toast } from 'sonner';
 import { apiFetch } from '../utils/api';
+import { useWorkspace } from '../context/WorkspaceContext';
+import { generateVectorPDF } from '../utils/vectorPdfGenerator';
 import UnitEconomicsScorecard from '../components/UnitEconomicsScorecard';
 import WhatIfScenarioSimulator from '../components/WhatIfScenarioSimulator';
 import { exportMultiSheetExcel } from '../utils/excelExport';
@@ -63,6 +63,7 @@ export interface PredictionResult {
 }
 
 export default function Data() {
+  const { activeWorkspace } = useWorkspace();
   const [activeTab, setActiveTab] = useState<'forecast' | 'simulator'>('forecast');
   const [loading, setLoading] = useState(false);
   const [fileLoading, setFileLoading] = useState(false);
@@ -81,10 +82,10 @@ export default function Data() {
     goals: 'Scale to $150k MRR and establish European enterprise presence',
   });
 
-  // Load existing records from SQLite on component mount
+  // Load existing records from SQLite on component mount & workspace switch
   useEffect(() => {
     loadExistingRecords();
-  }, []);
+  }, [activeWorkspace?.id]);
 
   const loadExistingRecords = async () => {
     try {
@@ -359,27 +360,35 @@ export default function Data() {
   };
 
   const handleExportPDF = async () => {
-    const element = document.getElementById('prediction-report');
-    if (!element) return;
-
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#f6fafe',
+      const margin = formData.revenue > 0 ? ((formData.revenue - formData.expenses) / formData.revenue) * 100 : 43.3;
+      const arpu = formData.customers > 0 ? formData.revenue / formData.customers : 40.49;
+      const ltv = formData.churnRate > 0 ? arpu / (formData.churnRate / 100) : arpu * 24;
+
+      await generateVectorPDF({
+        title: `AI Predictive Model & 6-Month Forecast`,
+        workspaceName: activeWorkspace?.name || 'Kinetic Global Analytics',
+        industry: activeWorkspace?.industry || formData.industry || 'SaaS',
+        currency: activeWorkspace?.currency || 'USD',
+        metrics: {
+          revenue: formData.revenue,
+          expenses: formData.expenses,
+          margin: Number(margin.toFixed(1)),
+          churnRate: formData.churnRate,
+          customers: formData.customers,
+          ruleOf40: prediction?.efficiencyScore ? Math.round(prediction.efficiencyScore * 0.55) : 48.3,
+          ltv: Math.round(ltv),
+          efficiencyScore: prediction?.efficiencyScore || 88,
+          riskLevel: prediction?.riskLevel || 'Low',
+        },
+        summary: prediction?.summary,
+        recommendations: prediction?.recommendations,
+        forecast: prediction?.forecast,
       });
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`TrackWise-Analysis-${new Date().toISOString().split('T')[0]}.pdf`);
-      toast.success('Analysis report exported as PDF.');
+      toast.success('Executive vector PDF report exported successfully.');
     } catch (err) {
+      console.error('Vector PDF export error:', err);
       toast.error('Failed to generate PDF.');
     }
   };

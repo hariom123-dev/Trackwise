@@ -32,6 +32,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import CommandSearch from './CommandSearch';
 import AICopilotDrawer from './AICopilotDrawer';
+import WorkspaceSwitcher from './WorkspaceSwitcher';
 import { apiFetch } from '../utils/api';
 import { toast } from 'sonner';
 
@@ -212,6 +213,9 @@ export default function Layout({ children }: LayoutProps) {
             <X size={18} />
           </button>
         </div>
+
+        {/* Multi-Business Workspace Switcher */}
+        <WorkspaceSwitcher />
         
         {/* Main Nav Links */}
         <div className="px-2 mb-3">

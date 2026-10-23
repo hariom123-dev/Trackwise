@@ -10,13 +10,15 @@ import Settings from './pages/Settings';
 import Layout from './components/Layout'; 
 import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
+import { WorkspaceProvider } from './context/WorkspaceContext';
 import { Toaster } from 'sonner';
  
 function App() {
   return (
     <AuthProvider>
-      <Router>
-        <Toaster position="top-right" richColors />
+      <WorkspaceProvider>
+        <Router>
+          <Toaster position="top-right" richColors />
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
@@ -70,6 +72,7 @@ function App() {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </Router>
+      </WorkspaceProvider>
     </AuthProvider>
   );
 }

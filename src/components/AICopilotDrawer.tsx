@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../utils/api';
+import { useWorkspace } from '../context/WorkspaceContext';
 import { toast } from 'sonner';
 
 export interface ChatMessage {
@@ -68,6 +69,7 @@ const QUICK_PROMPTS = [
 ];
 
 export default function AICopilotDrawer({ isOpen, onClose }: AICopilotDrawerProps) {
+  const { activeWorkspace } = useWorkspace();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputMessage, setInputMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -90,7 +92,7 @@ export default function AICopilotDrawer({ isOpen, onClose }: AICopilotDrawerProp
       loadMessages();
       setTimeout(() => textareaRef.current?.focus(), 250);
     }
-  }, [isOpen]);
+  }, [isOpen, activeWorkspace?.id]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -314,7 +316,7 @@ export default function AICopilotDrawer({ isOpen, onClose }: AICopilotDrawerProp
                     </span>
                   </div>
                   <p className="text-[11px] text-slate-300 font-medium">
-                    Continuous SQLite telemetry & CFO quantitative copilot
+                    {activeWorkspace?.name || 'Kinetic Global Analytics'} ({activeWorkspace?.industry || 'SaaS'}) • SQLite Telemetry
                   </p>
                 </div>
               </div>

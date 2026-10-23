@@ -125,12 +125,47 @@ export function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      industry TEXT NOT NULL,
+      currency TEXT DEFAULT 'USD',
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_timeseries_user_period ON timeseries_records(user_id, period);
     CREATE INDEX IF NOT EXISTS idx_reports_user ON analysis_reports(user_id);
     CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id);
     CREATE INDEX IF NOT EXISTS idx_chat_user_created ON chat_messages(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at);
+  `);
+
+  // Ensure workspace_id column exists on isolated tables
+  function ensureColumn(table: string, column: string, typeDef: string) {
+    try {
+      const cols = db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+      if (!cols.some((c) => c.name === column)) {
+        db.prepare(`ALTER TABLE ${table} ADD COLUMN ${column} ${typeDef}`).run();
+      }
+    } catch (err) {
+      console.warn(`Could not add column ${column} to ${table}:`, err);
+    }
+  }
+
+  ensureColumn("timeseries_records", "workspace_id", "TEXT");
+  ensureColumn("analysis_reports", "workspace_id", "TEXT");
+  ensureColumn("insights", "workspace_id", "TEXT");
+  ensureColumn("chat_messages", "workspace_id", "TEXT");
+
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_workspaces_user ON workspaces(user_id);
+    CREATE INDEX IF NOT EXISTS idx_timeseries_ws ON timeseries_records(workspace_id, period);
+    CREATE INDEX IF NOT EXISTS idx_reports_ws ON analysis_reports(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_insights_ws ON insights(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_ws ON chat_messages(workspace_id, created_at);
   `);
 
   seedDemoData();
@@ -215,6 +250,225 @@ function seedDemoData() {
     );
 
     console.log("🌱 Default demo user seeded: alex@kinetic.com / Password123!");
+  }
+
+  // 1. Seed Primary Default Workspace for Demo User
+  const defaultWsId = "ws_kinetic_analytics";
+  const existingDefaultWs = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(defaultWsId) as any;
+  if (!existingDefaultWs) {
+    db.prepare(`
+      INSERT INTO workspaces (id, user_id, name, industry, currency, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(defaultWsId, demoUserId, "Kinetic Global Analytics", "SaaS", "USD", new Date().toISOString());
+    console.log("🌱 Seeded primary workspace: Kinetic Global Analytics");
+  }
+
+  // Ensure all existing unassigned demo records are linked to the primary workspace
+  db.prepare("UPDATE timeseries_records SET workspace_id = ? WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '')").run(defaultWsId, demoUserId);
+  db.prepare("UPDATE analysis_reports SET workspace_id = ? WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '')").run(defaultWsId, demoUserId);
+  db.prepare("UPDATE insights SET workspace_id = ? WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '')").run(defaultWsId, demoUserId);
+  db.prepare("UPDATE chat_messages SET workspace_id = ? WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '')").run(defaultWsId, demoUserId);
+
+  // 2. Seed Secondary Workspace: Aether Consumer Retail
+  const secondaryWsId = "ws_aether_retail";
+  const existingSecWs = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(secondaryWsId) as any;
+  if (!existingSecWs) {
+    db.prepare(`
+      INSERT INTO workspaces (id, user_id, name, industry, currency, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(secondaryWsId, demoUserId, "Aether Consumer Retail", "E-commerce", "USD", new Date().toISOString());
+    console.log("🌱 Seeded secondary workspace: Aether Consumer Retail");
+  }
+
+  // Seed retail records for secondary workspace if none exist
+  const secRecCount = (db.prepare("SELECT COUNT(*) as count FROM timeseries_records WHERE workspace_id = ?").get(secondaryWsId) as any).count;
+  if (secRecCount === 0) {
+    const retailData = [
+      { period: "2025-05", revenue: 128000, expenses: 98000, customers: 8400, churnRate: 3.9, industry: "E-commerce" },
+      { period: "2025-06", revenue: 135000, expenses: 102000, customers: 8900, churnRate: 3.8, industry: "E-commerce" },
+      { period: "2025-07", revenue: 142000, expenses: 106000, customers: 9500, churnRate: 3.7, industry: "E-commerce" },
+      { period: "2025-08", revenue: 151000, expenses: 111000, customers: 10200, churnRate: 3.6, industry: "E-commerce" },
+      { period: "2025-09", revenue: 163000, expenses: 119000, customers: 11000, churnRate: 3.5, industry: "E-commerce" },
+      { period: "2025-10", revenue: 178000, expenses: 128000, customers: 12100, churnRate: 3.4, industry: "E-commerce" },
+      { period: "2025-11", revenue: 210000, expenses: 148000, customers: 14200, churnRate: 3.2, industry: "E-commerce" },
+      { period: "2025-12", revenue: 245000, expenses: 168000, customers: 16800, churnRate: 3.1, industry: "E-commerce" },
+      { period: "2026-01", revenue: 185000, expenses: 135000, customers: 15200, churnRate: 3.3, industry: "E-commerce" },
+      { period: "2026-02", revenue: 192000, expenses: 139000, customers: 15800, churnRate: 3.2, industry: "E-commerce" },
+      { period: "2026-03", revenue: 205000, expenses: 146000, customers: 16900, churnRate: 3.0, industry: "E-commerce" },
+      { period: "2026-04", revenue: 218000, expenses: 152000, customers: 18100, churnRate: 2.9, industry: "E-commerce" },
+    ];
+
+    const insertRetailRec = db.prepare(`
+      INSERT INTO timeseries_records (id, user_id, workspace_id, period, revenue, expenses, customers, churn_rate, industry, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const r of retailData) {
+      insertRetailRec.run(
+        "ts_" + crypto.randomUUID(),
+        demoUserId,
+        secondaryWsId,
+        r.period,
+        r.revenue,
+        r.expenses,
+        r.customers,
+        r.churnRate,
+        r.industry,
+        new Date().toISOString()
+      );
+    }
+
+    // Seed 1 analysis report for Aether Retail
+    const retailReport = {
+      id: "rep_aether_01",
+      userId: demoUserId,
+      workspaceId: secondaryWsId,
+      timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+      industry: "E-commerce",
+      summary: "Omnichannel retail performance demonstrates robust repeat order velocity. Gross margin expanded to 30.3% following direct-to-consumer fulfillment consolidation. Churn has stabilized at 2.9% across 18,100 active retail customers.",
+      riskLevel: "Low",
+      efficiencyScore: 86,
+      inputData: {
+        revenue: 218000,
+        expenses: 152000,
+        customers: 18100,
+        churnRate: 2.9,
+        industry: "E-commerce",
+        goals: "Scale DTC channels and expand TikTok Shop integrations",
+      },
+      prediction: {
+        summary: "Omnichannel retail performance demonstrates robust repeat order velocity. Gross margin expanded to 30.3% following direct-to-consumer fulfillment consolidation. Churn has stabilized at 2.9% across 18,100 active retail customers.",
+        forecast: [
+          { month: "Month 1", revenue: 228900 },
+          { month: "Month 2", revenue: 240350 },
+          { month: "Month 3", revenue: 252360 },
+          { month: "Month 4", revenue: 264980 },
+          { month: "Month 5", revenue: 278230 },
+          { month: "Month 6", revenue: 292140 },
+        ],
+        recommendations: [
+          "Deploy dynamic cart recovery SMS automation for high-intent abandoned checkouts.",
+          "Expand TikTok Shop and Instagram direct checkout catalog synchronization.",
+          "Negotiate tier-volume courier rates across Midwest and East Coast fulfillment nodes.",
+          "Introduce VIP loyalty tier offering early access to seasonal product drops.",
+        ],
+        riskLevel: "Low",
+        efficiencyScore: 86,
+      },
+    };
+
+    db.prepare(`
+      INSERT INTO analysis_reports (
+        id, user_id, workspace_id, timestamp, industry, summary, risk_level, efficiency_score, input_data_json, prediction_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      retailReport.id,
+      retailReport.userId,
+      retailReport.workspaceId,
+      retailReport.timestamp,
+      retailReport.industry,
+      retailReport.summary,
+      retailReport.riskLevel,
+      retailReport.efficiencyScore,
+      JSON.stringify(retailReport.inputData),
+      JSON.stringify(retailReport.prediction)
+    );
+
+    // Seed 2 strategic insights for Aether Retail
+    const retailInsights = [
+      {
+        id: "ins_aether_01",
+        userId: demoUserId,
+        workspaceId: secondaryWsId,
+        title: "DTC Cart Size Elasticity",
+        desc: "Bundling seasonal complementary SKUs yields 18% higher average order value.",
+        fullContent: "Cross-merchandising telemetry highlights strong elasticity when bundling accessory items with core lifestyle apparel. Implementing a 1-click checkout bundle recommendation increases AOV from $52 to $61.",
+        tag: "Product",
+        image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=2070",
+        author: "Retail AI Strategist",
+        avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
+        confidence: 91,
+        date: "Oct 22, 2024",
+        likes: 64,
+        likedByUser: 0,
+        savedByUser: 1,
+        actionItems: [
+          { id: "1", text: "Configure dynamic checkout bundle recommendations", done: true },
+          { id: "2", text: "Track AOV impact across 1,000 checkout sessions", done: false },
+        ],
+      },
+      {
+        id: "ins_aether_02",
+        userId: demoUserId,
+        workspaceId: secondaryWsId,
+        title: "Logistics Optimization",
+        desc: "Regional hub fulfillment reduces shipping latency by 1.8 days.",
+        fullContent: "Consolidating East Coast inventory in the Columbus fulfillment center reduces average delivery transit times to 2.1 days, driving customer repurchase rate up by 14%.",
+        tag: "Operations",
+        image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=2070",
+        author: "Supply Chain Engine",
+        avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
+        confidence: 95,
+        date: "Oct 19, 2024",
+        likes: 82,
+        likedByUser: 1,
+        savedByUser: 0,
+        actionItems: [
+          { id: "1", text: "Route 35% of national volume through Columbus node", done: true },
+          { id: "2", text: "Evaluate shipping SLA feedback in review sentiment", done: false },
+        ],
+      },
+    ];
+
+    const insertSecInsight = db.prepare(`
+      INSERT INTO insights (
+        id, user_id, workspace_id, title, desc, full_content, tag, image, author, avatar,
+        confidence, date, likes, liked_by_user, saved_by_user, action_items_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const ins of retailInsights) {
+      insertSecInsight.run(
+        ins.id,
+        ins.userId,
+        ins.workspaceId,
+        ins.title,
+        ins.desc,
+        ins.fullContent,
+        ins.tag,
+        ins.image,
+        ins.author,
+        ins.avatar,
+        ins.confidence,
+        ins.date,
+        ins.likes,
+        ins.likedByUser,
+        ins.savedByUser,
+        JSON.stringify(ins.actionItems)
+      );
+    }
+
+    // Seed copilot welcome message for Aether Retail
+    db.prepare(`
+      INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "chat_init_aether_01",
+      demoUserId,
+      secondaryWsId,
+      "assistant",
+      "Hello Alex! Telemetry for Aether Consumer Retail is online. Monthly revenue is $218,000 across 18,100 active retail accounts with a 30.3% operating margin and 2.9% churn rate. How can I assist with your seasonal GMV projections, inventory working capital, or DTC expansion models?",
+      JSON.stringify({
+        revenue: 218000,
+        expenses: 152000,
+        margin: 30.3,
+        churn: 2.9,
+        customers: 18100,
+      }),
+      new Date().toISOString()
+    );
+
+    console.log("🌱 Seeded secondary workspace telemetry, reports, insights & copilot briefing for Aether Consumer Retail.");
   }
 
   // Seed 12 months historical records if none exist for this user
@@ -595,10 +849,150 @@ function seedDemoData() {
     };
 
     db.prepare(`
-      INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(welcomeMsg.id, welcomeMsg.userId, welcomeMsg.role, welcomeMsg.content, welcomeMsg.metricsSnapshot, welcomeMsg.createdAt);
+      INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(welcomeMsg.id, welcomeMsg.userId, defaultWsId, welcomeMsg.role, welcomeMsg.content, welcomeMsg.metricsSnapshot, welcomeMsg.createdAt);
 
     console.log("🌱 Seeded initial AI copilot message for demo user.");
   }
+}
+
+// ==========================================
+// Workspace Management Helpers
+// ==========================================
+export interface WorkspaceRow {
+  id: string;
+  userId: string;
+  name: string;
+  industry: string;
+  currency: string;
+  createdAt: string;
+}
+
+export function getUserWorkspaces(userId: string): WorkspaceRow[] {
+  const rows = db
+    .prepare(
+      "SELECT id, user_id as userId, name, industry, currency, created_at as createdAt FROM workspaces WHERE user_id = ? ORDER BY created_at ASC"
+    )
+    .all(userId) as any[];
+  return rows;
+}
+
+export function getWorkspaceById(workspaceId: string, userId: string): WorkspaceRow | null {
+  const row = db
+    .prepare(
+      "SELECT id, user_id as userId, name, industry, currency, created_at as createdAt FROM workspaces WHERE id = ? AND user_id = ?"
+    )
+    .get(workspaceId, userId) as any;
+  return row || null;
+}
+
+export function createWorkspace(
+  userId: string,
+  name: string,
+  industry: string,
+  currency: string = "USD"
+): WorkspaceRow {
+  const id = "ws_" + crypto.randomUUID();
+  const now = new Date().toISOString();
+  const cur = (currency || "USD").trim().toUpperCase();
+
+  db.prepare(`
+    INSERT INTO workspaces (id, user_id, name, industry, currency, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, userId, name.trim(), industry.trim(), cur, now);
+
+  // Seed baseline starter records so metrics and charts render immediately
+  const baseRevenue = industry === "E-commerce" ? 115000 : industry === "Fintech" ? 95000 : 70000;
+  const baseExpenses = Math.round(baseRevenue * 0.58);
+  const baseCustomers = industry === "E-commerce" ? 5200 : 1600;
+  const baseChurn = industry === "E-commerce" ? 3.2 : 1.8;
+
+  const starterRows = [
+    { period: "2026-02", revenue: Math.round(baseRevenue * 0.9), expenses: Math.round(baseExpenses * 0.92), customers: Math.round(baseCustomers * 0.9), churn: baseChurn + 0.3 },
+    { period: "2026-03", revenue: Math.round(baseRevenue * 0.95), expenses: Math.round(baseExpenses * 0.96), customers: Math.round(baseCustomers * 0.95), churn: baseChurn + 0.1 },
+    { period: "2026-04", revenue: baseRevenue, expenses: baseExpenses, customers: baseCustomers, churn: baseChurn },
+  ];
+
+  const insertRec = db.prepare(`
+    INSERT INTO timeseries_records (id, user_id, workspace_id, period, revenue, expenses, customers, churn_rate, industry, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  for (const r of starterRows) {
+    insertRec.run("ts_" + crypto.randomUUID(), userId, id, r.period, r.revenue, r.expenses, r.customers, r.churn, industry, now);
+  }
+
+  // Seed initial welcome copilot briefing
+  const margin = Number((((baseRevenue - baseExpenses) / baseRevenue) * 100).toFixed(1));
+  const welcomeContent = `Hello! I have loaded telemetry for ${name.trim()} (${industry.trim()}). Baseline monthly revenue is $${baseRevenue.toLocaleString()} with a ${margin}% operating margin and ${baseChurn}% churn across ${baseCustomers.toLocaleString()} active customer accounts. How can I assist with your capital allocation, sensitivity models, or runway forecasts today?`;
+
+  db.prepare(`
+    INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "chat_init_" + crypto.randomUUID(),
+    userId,
+    id,
+    "assistant",
+    welcomeContent,
+    JSON.stringify({
+      revenue: baseRevenue,
+      expenses: baseExpenses,
+      margin,
+      churn: baseChurn,
+      customers: baseCustomers,
+    }),
+    now
+  );
+
+  return {
+    id,
+    userId,
+    name: name.trim(),
+    industry: industry.trim(),
+    currency: cur,
+    createdAt: now,
+  };
+}
+
+export function updateWorkspace(
+  workspaceId: string,
+  userId: string,
+  data: { name?: string; industry?: string; currency?: string }
+): WorkspaceRow | null {
+  const existing = getWorkspaceById(workspaceId, userId);
+  if (!existing) return null;
+
+  const newName = data.name ? data.name.trim() : existing.name;
+  const newIndustry = data.industry ? data.industry.trim() : existing.industry;
+  const newCurrency = data.currency ? data.currency.trim().toUpperCase() : existing.currency;
+
+  db.prepare(`
+    UPDATE workspaces
+    SET name = ?, industry = ?, currency = ?
+    WHERE id = ? AND user_id = ?
+  `).run(newName, newIndustry, newCurrency, workspaceId, userId);
+
+  return {
+    ...existing,
+    name: newName,
+    industry: newIndustry,
+    currency: newCurrency,
+  };
+}
+
+export function deleteWorkspace(workspaceId: string, userId: string) {
+  const count = (
+    db.prepare("SELECT COUNT(*) as count FROM workspaces WHERE user_id = ?").get(userId) as any
+  ).count;
+  if (count <= 1) {
+    throw new Error("Cannot delete your only workspace. A minimum of one active workspace is required.");
+  }
+
+  db.prepare("DELETE FROM timeseries_records WHERE workspace_id = ?").run(workspaceId);
+  db.prepare("DELETE FROM analysis_reports WHERE workspace_id = ?").run(workspaceId);
+  db.prepare("DELETE FROM insights WHERE workspace_id = ?").run(workspaceId);
+  db.prepare("DELETE FROM chat_messages WHERE workspace_id = ?").run(workspaceId);
+  db.prepare("DELETE FROM workspaces WHERE id = ? AND user_id = ?").run(workspaceId, userId);
 }

@@ -16,11 +16,11 @@ import {
   Check,
   Loader2
 } from 'lucide-react';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
 import { motion, AnimatePresence } from 'motion/react';
 import { toast } from 'sonner';
 import { apiFetch } from '../utils/api';
+import { useWorkspace } from '../context/WorkspaceContext';
+import { generateVectorPDF } from '../utils/vectorPdfGenerator';
 
 export interface ActionItem {
   id: string;
@@ -46,6 +46,7 @@ export interface Insight {
 }
 
 export default function Insights() {
+  const { activeWorkspace } = useWorkspace();
   const [insights, setInsights] = useState<Insight[]>([]);
   const [selectedInsight, setSelectedInsight] = useState<Insight | null>(null);
   const [filterTag, setFilterTag] = useState('All');
@@ -55,10 +56,10 @@ export default function Insights() {
 
   const tags = ['All', 'Market Entry', 'Product', 'Operations', 'Finance'];
 
-  // Load insights from backend SQLite database
+  // Load insights from backend SQLite database scoped to active workspace
   useEffect(() => {
     loadInsights();
-  }, []);
+  }, [activeWorkspace?.id]);
 
   const loadInsights = async () => {
     try {
@@ -183,31 +184,36 @@ export default function Insights() {
   };
 
   const handleExportPDF = async () => {
-    const loadingToast = toast.loading('Generating strategic report PDF...');
-    const element = document.getElementById('insights-report');
-    if (!element) {
-      toast.dismiss(loadingToast);
-      return;
-    }
-
+    const loadingToast = toast.loading('Generating executive vector PDF report...');
     try {
-      const canvas = await html2canvas(element, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-        backgroundColor: '#f8fafc',
+      const topInsight = insights[0];
+      const recs = insights.slice(0, 4).map((ins) => `${ins.title}: ${ins.desc}`);
+
+      await generateVectorPDF({
+        title: `Market Intelligence & Strategic Signals Brief`,
+        workspaceName: activeWorkspace?.name || 'Kinetic Global Analytics',
+        industry: activeWorkspace?.industry || 'SaaS',
+        currency: activeWorkspace?.currency || 'USD',
+        summary: topInsight
+          ? `${topInsight.title} — ${topInsight.desc}. ${topInsight.fullContent || ''}`
+          : `Executive market signals synthesize regional unit economics, operational leverage, and capital efficiency.`,
+        recommendations: recs.length > 0 ? recs : undefined,
+        metrics: {
+          revenue: 99200,
+          expenses: 56200,
+          margin: 43.3,
+          churnRate: 1.5,
+          customers: 2450,
+          ruleOf40: 48.3,
+          ltv: 66133,
+          efficiencyScore: 92,
+          riskLevel: 'Low',
+        },
       });
 
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const imgProps = pdf.getImageProperties(imgData);
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      pdf.save(`TrackWise-Strategic-Signals-${new Date().toISOString().split('T')[0]}.pdf`);
-      toast.success('Strategic report exported successfully.', { id: loadingToast });
+      toast.success('Strategic signals vector PDF exported successfully.', { id: loadingToast });
     } catch (err) {
+      console.error('Vector PDF export error:', err);
       toast.error('Export failed. Please try again.', { id: loadingToast });
     }
   };

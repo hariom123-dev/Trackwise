@@ -11,7 +11,16 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { db, initDatabase, logUserActivity } from "./server/db.ts";
+import {
+  db,
+  initDatabase,
+  logUserActivity,
+  getUserWorkspaces,
+  getWorkspaceById,
+  createWorkspace,
+  updateWorkspace,
+  deleteWorkspace,
+} from "./server/db.ts";
 
 dotenv.config();
 
@@ -43,7 +52,7 @@ let genAIClient: GoogleGenAI | null = null;
 function getRazorpay(): Razorpay | null {
   const keyId = process.env.RAZORPAY_KEY_ID;
   const keySecret = process.env.RAZORPAY_KEY_SECRET;
-  if (!keyId || !keySecret || keyId.startsWith("your_") || keySecret.startsWith("your_")) {
+  if (!keyId || !keySecret || keyId.startsWith("your_")) {
     return null;
   }
   if (!razorpayClient) {
@@ -119,6 +128,33 @@ function authenticateToken(req: Request, res: Response, next: NextFunction) {
   } catch (err) {
     return res.status(401).json({ error: "Invalid or expired token." });
   }
+}
+
+/**
+ * Resolves the active workspace context for a request.
+ * Prioritizes: X-Workspace-ID header > ?workspaceId query param > body.workspaceId > user's default workspace
+ */
+function getActiveWorkspaceId(req: Request, userId: string): string {
+  const headerWs = req.headers["x-workspace-id"] as string | undefined;
+  const queryWs = req.query.workspaceId as string | undefined;
+  const bodyWs = (req.body && typeof req.body === "object" ? req.body.workspaceId : undefined) as string | undefined;
+
+  const candidateId = headerWs || queryWs || bodyWs;
+  if (candidateId) {
+    const valid = getWorkspaceById(candidateId, userId);
+    if (valid) {
+      return valid.id;
+    }
+  }
+
+  const userWorkspaces = getUserWorkspaces(userId);
+  if (userWorkspaces.length > 0) {
+    return userWorkspaces[0].id;
+  }
+
+  // Fallback: auto-create primary default workspace if none exists
+  const defaultWs = createWorkspace(userId, "Kinetic Global Analytics", "SaaS", "USD");
+  return defaultWs.id;
 }
 
 /**
@@ -332,31 +368,8 @@ async function startServer() {
         now
       );
 
-      // Seed starter 3 months of time-series data for new user
-      const starterRecords = [
-        { period: "2026-02", revenue: 38000, expenses: 26000, customers: 850, churnRate: 2.2, industry: "SaaS" },
-        { period: "2026-03", revenue: 43500, expenses: 28000, customers: 980, churnRate: 2.0, industry: "SaaS" },
-        { period: "2026-04", revenue: 50000, expenses: 31000, customers: 1120, churnRate: 1.8, industry: "SaaS" },
-      ];
-
-      const insertStarter = db.prepare(`
-        INSERT INTO timeseries_records (id, user_id, period, revenue, expenses, customers, churn_rate, industry, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-
-      for (const rec of starterRecords) {
-        insertStarter.run(
-          "ts_" + crypto.randomUUID(),
-          userId,
-          rec.period,
-          rec.revenue,
-          rec.expenses,
-          rec.customers,
-          rec.churnRate,
-          rec.industry,
-          now
-        );
-      }
+      // Seed default workspace with isolated baseline time-series and copilot telemetry
+      createWorkspace(userId, `${name.trim()}'s Workspace`, "SaaS", "USD");
 
       const createdUserRow = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
       const user = sanitizeUser(createdUserRow);
@@ -519,17 +532,113 @@ async function startServer() {
   });
 
   // ==========================================
+  // Workspace Management Routes
+  // ==========================================
+  app.get("/api/workspaces", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const workspaces = getUserWorkspaces(user.id);
+      res.json({ workspaces });
+    } catch (err: any) {
+      console.error("Fetch workspaces error:", err);
+      res.status(500).json({ error: "Failed to fetch workspaces." });
+    }
+  });
+
+  const createWorkspaceSchema = z.object({
+    name: z.string().min(2, "Workspace name must be at least 2 characters"),
+    industry: z.string().min(1, "Industry vertical is required"),
+    currency: z.string().optional(),
+  });
+
+  app.post("/api/workspaces", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const parsed = createWorkspaceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues[0].message });
+      }
+
+      const { name, industry, currency } = parsed.data;
+      const workspace = createWorkspace(user.id, name, industry, currency || "USD");
+
+      logUserActivity(
+        user.id,
+        "WORKSPACE_CREATED",
+        `Created new business entity workspace: "${workspace.name}" (${workspace.industry}).`
+      );
+
+      res.status(201).json({ workspace });
+    } catch (err: any) {
+      console.error("Create workspace error:", err);
+      res.status(500).json({ error: "Failed to create workspace." });
+    }
+  });
+
+  const updateWorkspaceSchema = z.object({
+    name: z.string().min(2, "Workspace name must be at least 2 characters").optional(),
+    industry: z.string().min(1, "Industry vertical is required").optional(),
+    currency: z.string().optional(),
+  });
+
+  app.put("/api/workspaces/:id", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const parsed = updateWorkspaceSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues[0].message });
+      }
+
+      const updated = updateWorkspace(req.params.id, user.id, parsed.data);
+      if (!updated) {
+        return res.status(404).json({ error: "Workspace not found." });
+      }
+
+      logUserActivity(
+        user.id,
+        "WORKSPACE_UPDATED",
+        `Updated workspace configuration for "${updated.name}".`
+      );
+
+      res.json({ workspace: updated });
+    } catch (err: any) {
+      console.error("Update workspace error:", err);
+      res.status(500).json({ error: "Failed to update workspace." });
+    }
+  });
+
+  app.delete("/api/workspaces/:id", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      deleteWorkspace(req.params.id, user.id);
+
+      logUserActivity(
+        user.id,
+        "WORKSPACE_DELETED",
+        `Deleted workspace ${req.params.id} and isolated data records.`
+      );
+
+      res.json({ success: true, message: "Workspace deleted successfully." });
+    } catch (err: any) {
+      res.status(400).json({ error: err.message || "Failed to delete workspace." });
+    }
+  });
+
+  // ==========================================
   // Time-Series Data Routes
   // ==========================================
   app.get("/api/data/timeseries", authenticateToken, (req, res) => {
     try {
       const user = (req as any).user;
+      const activeWsId = getActiveWorkspaceId(req, user.id);
+
       const records = db
-        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
-        .all(user.id) as any[];
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? AND workspace_id = ? ORDER BY period ASC")
+        .all(user.id, activeWsId) as any[];
 
       const formattedRecords = records.map((r) => ({
         id: r.id,
+        workspaceId: r.workspace_id,
         period: r.period,
         revenue: r.revenue,
         expenses: r.expenses,
@@ -540,11 +649,12 @@ async function startServer() {
       }));
 
       const reports = db
-        .prepare("SELECT * FROM analysis_reports WHERE user_id = ? ORDER BY timestamp DESC LIMIT 10")
-        .all(user.id) as any[];
+        .prepare("SELECT * FROM analysis_reports WHERE user_id = ? AND workspace_id = ? ORDER BY timestamp DESC LIMIT 10")
+        .all(user.id, activeWsId) as any[];
 
       const formattedReports = reports.map((rep) => ({
         id: rep.id,
+        workspaceId: rep.workspace_id,
         timestamp: rep.timestamp,
         industry: rep.industry,
         summary: rep.summary,
@@ -554,7 +664,7 @@ async function startServer() {
         prediction: JSON.parse(rep.prediction_json || "{}"),
       }));
 
-      res.json({ records: formattedRecords, reports: formattedReports });
+      res.json({ activeWorkspaceId: activeWsId, records: formattedRecords, reports: formattedReports });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to fetch time-series data." });
     }
@@ -576,6 +686,7 @@ async function startServer() {
   app.post("/api/data/timeseries/bulk", authenticateToken, (req, res) => {
     try {
       const user = (req as any).user;
+      const activeWsId = getActiveWorkspaceId(req, user.id);
       const parsed = bulkTimeseriesSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -585,8 +696,8 @@ async function startServer() {
       const now = new Date().toISOString();
 
       const insertOrUpdate = db.prepare(`
-        INSERT INTO timeseries_records (id, user_id, period, revenue, expenses, customers, churn_rate, industry, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO timeseries_records (id, user_id, workspace_id, period, revenue, expenses, customers, churn_rate, industry, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
 
       const insertMany = db.transaction((items: typeof rows) => {
@@ -594,6 +705,7 @@ async function startServer() {
           insertOrUpdate.run(
             "ts_" + crypto.randomUUID(),
             user.id,
+            activeWsId,
             r.period,
             r.revenue,
             r.expenses,
@@ -642,16 +754,18 @@ async function startServer() {
         `Ingested ${rows.length} time-series record(s) into workspace telemetry.`
       );
 
-      // Return updated records
+      // Return updated records for active workspace
       const updated = db
-        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
-        .all(user.id) as any[];
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? AND workspace_id = ? ORDER BY period ASC")
+        .all(user.id, activeWsId) as any[];
 
       res.json({
         success: true,
         count: rows.length,
+        activeWorkspaceId: activeWsId,
         records: updated.map((r) => ({
           id: r.id,
+          workspaceId: r.workspace_id,
           period: r.period,
           revenue: r.revenue,
           expenses: r.expenses,
@@ -690,6 +804,7 @@ async function startServer() {
   app.post("/api/gemini/predict", authenticateToken, async (req, res) => {
     try {
       const user = (req as any).user;
+      const activeWsId = getActiveWorkspaceId(req, user.id);
       const parsed = predictSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -787,17 +902,18 @@ async function startServer() {
         }
       }
 
-      // Save report to SQLite
+      // Save report to SQLite with workspace_id
       const reportId = "rep_" + crypto.randomUUID();
       const now = new Date().toISOString();
 
       db.prepare(`
         INSERT INTO analysis_reports (
-          id, user_id, timestamp, industry, summary, risk_level, efficiency_score, input_data_json, prediction_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          id, user_id, workspace_id, timestamp, industry, summary, risk_level, efficiency_score, input_data_json, prediction_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         reportId,
         user.id,
+        activeWsId,
         now,
         input.industry,
         finalReport.summary,
@@ -865,6 +981,7 @@ async function startServer() {
 
       res.json({
         id: reportId,
+        workspaceId: activeWsId,
         timestamp: now,
         industry: input.industry,
         summary: finalReport.summary,
@@ -908,10 +1025,21 @@ async function startServer() {
   app.get("/api/insights", authenticateToken, (req, res) => {
     try {
       const user = (req as any).user;
-      const rows = db.prepare("SELECT * FROM insights WHERE user_id = ? ORDER BY date DESC").all(user.id) as any[];
+      const activeWsId = getActiveWorkspaceId(req, user.id);
+
+      let rows = db
+        .prepare("SELECT * FROM insights WHERE user_id = ? AND workspace_id = ? ORDER BY date DESC")
+        .all(user.id, activeWsId) as any[];
+
+      if (rows.length === 0) {
+        rows = db
+          .prepare("SELECT * FROM insights WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '') ORDER BY date DESC")
+          .all(user.id) as any[];
+      }
 
       const insights = rows.map((r) => ({
         id: r.id,
+        workspaceId: r.workspace_id,
         title: r.title,
         desc: r.desc,
         fullContent: r.full_content,
@@ -927,7 +1055,7 @@ async function startServer() {
         actionItems: JSON.parse(r.action_items_json || "[]"),
       }));
 
-      res.json({ insights });
+      res.json({ activeWorkspaceId: activeWsId, insights });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to load market insights." });
     }
@@ -936,9 +1064,10 @@ async function startServer() {
   app.post("/api/insights/scan", authenticateToken, async (req, res) => {
     try {
       const user = (req as any).user;
+      const activeWsId = getActiveWorkspaceId(req, user.id);
       const latestTs = db
-        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period DESC LIMIT 1")
-        .get(user.id) as any;
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? AND workspace_id = ? ORDER BY period DESC LIMIT 1")
+        .get(user.id, activeWsId) as any;
 
       const industry = latestTs?.industry || "SaaS";
       const revenue = latestTs?.revenue || 85000;
@@ -983,12 +1112,13 @@ async function startServer() {
 
       db.prepare(`
         INSERT INTO insights (
-          id, user_id, title, desc, full_content, tag, image, author, avatar,
+          id, user_id, workspace_id, title, desc, full_content, tag, image, author, avatar,
           confidence, date, likes, liked_by_user, saved_by_user, action_items_json
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         id,
         user.id,
+        activeWsId,
         title,
         desc,
         fullContent,
@@ -1213,19 +1343,58 @@ Feel free to ask for a deeper breakdown of your pricing sensitivity, cost reduct
   app.get("/api/copilot/messages", authenticateToken, (req, res) => {
     try {
       const user = (req as any).user;
-      const rows = db
-        .prepare("SELECT * FROM chat_messages WHERE user_id = ? ORDER BY created_at ASC")
-        .all(user.id) as any[];
+      const activeWsId = getActiveWorkspaceId(req, user.id);
+
+      let rows = db
+        .prepare("SELECT * FROM chat_messages WHERE user_id = ? AND workspace_id = ? ORDER BY created_at ASC")
+        .all(user.id, activeWsId) as any[];
+
+      // If workspace has no chat messages yet, dynamically seed initial greeting
+      if (rows.length === 0) {
+        const historyRecords = db
+          .prepare("SELECT * FROM timeseries_records WHERE user_id = ? AND workspace_id = ? ORDER BY period ASC")
+          .all(user.id, activeWsId) as any[];
+        const latest = historyRecords.length > 0 ? historyRecords[historyRecords.length - 1] : null;
+        const ws = getWorkspaceById(activeWsId, user.id);
+        const wsName = ws?.name || "Business Workspace";
+        const rev = latest?.revenue || 85000;
+        const exp = latest?.expenses || 50000;
+        const margin = rev > 0 ? Number((((rev - exp) / rev) * 100).toFixed(1)) : 41.2;
+        const churn = latest?.churn_rate || 1.8;
+        const cust = latest?.customers || 1800;
+
+        const freshSnapshot = {
+          revenue: rev,
+          expenses: exp,
+          margin,
+          churn,
+          customers: cust,
+        };
+
+        const initId = "chat_init_" + crypto.randomUUID();
+        const now = new Date().toISOString();
+        const welcomeText = `Hello ${user.name || "Alex"}! Telemetry for ${wsName} is synced. Monthly revenue is $${rev.toLocaleString()} across ${cust.toLocaleString()} accounts with a ${margin}% operating margin and ${churn}% churn. How can I assist with your financial projections, capital allocation, or runway models?`;
+
+        db.prepare(`
+          INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(initId, user.id, activeWsId, "assistant", welcomeText, JSON.stringify(freshSnapshot), now);
+
+        rows = db
+          .prepare("SELECT * FROM chat_messages WHERE user_id = ? AND workspace_id = ? ORDER BY created_at ASC")
+          .all(user.id, activeWsId) as any[];
+      }
 
       const messages = rows.map((r) => ({
         id: r.id,
+        workspaceId: r.workspace_id,
         role: r.role,
         content: r.content,
         metricsSnapshot: r.metrics_snapshot_json ? JSON.parse(r.metrics_snapshot_json) : null,
         createdAt: r.created_at,
       }));
 
-      res.json({ messages });
+      res.json({ activeWorkspaceId: activeWsId, messages });
     } catch (err: any) {
       console.error("Copilot fetch error:", err);
       res.status(500).json({ error: "Failed to load chat history." });
@@ -1239,6 +1408,7 @@ Feel free to ask for a deeper breakdown of your pricing sensitivity, cost reduct
   app.post("/api/copilot/ask", authenticateToken, async (req, res) => {
     try {
       const user = (req as any).user;
+      const activeWsId = getActiveWorkspaceId(req, user.id);
       const parsed = copilotAskSchema.safeParse(req.body);
       if (!parsed.success) {
         return res.status(400).json({ error: parsed.error.issues[0].message });
@@ -1246,10 +1416,10 @@ Feel free to ask for a deeper breakdown of your pricing sensitivity, cost reduct
 
       const { message } = parsed.data;
 
-      // Telemetry Context from SQLite
+      // Telemetry Context from SQLite for active workspace
       const historyRecords = db
-        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
-        .all(user.id) as any[];
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? AND workspace_id = ? ORDER BY period ASC")
+        .all(user.id, activeWsId) as any[];
 
       const latest = historyRecords.length > 0 ? historyRecords[historyRecords.length - 1] : null;
       const revenue = latest?.revenue || 99200;
@@ -1284,13 +1454,13 @@ Feel free to ask for a deeper breakdown of your pricing sensitivity, cost reduct
         periodCount: historyRecords.length,
       };
 
-      // Save user message to SQLite
+      // Save user message to SQLite with workspace_id
       const userMsgId = "chat_usr_" + crypto.randomUUID();
       const now = new Date().toISOString();
       db.prepare(`
-        INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(userMsgId, user.id, "user", message, JSON.stringify(metricsSnapshot), now);
+        INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(userMsgId, user.id, activeWsId, "user", message, JSON.stringify(metricsSnapshot), now);
 
       // Assistant response generation (Gemini + Deterministic Fallback)
       let replyContent = "";
@@ -1332,13 +1502,13 @@ Provide a sharp, data-backed, executive response citing their actual figures, co
         replyContent = generateDeterministicCopilotResponse(message, metricsSnapshot, historyRecords);
       }
 
-      // Save assistant reply to SQLite
+      // Save assistant reply to SQLite with workspace_id
       const assistantMsgId = "chat_ast_" + crypto.randomUUID();
       const astTime = new Date().toISOString();
       db.prepare(`
-        INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(assistantMsgId, user.id, "assistant", replyContent, JSON.stringify(metricsSnapshot), astTime);
+        INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(assistantMsgId, user.id, activeWsId, "assistant", replyContent, JSON.stringify(metricsSnapshot), astTime);
 
       logUserActivity(
         user.id,
@@ -1347,8 +1517,10 @@ Provide a sharp, data-backed, executive response citing their actual figures, co
       );
 
       res.json({
+        activeWorkspaceId: activeWsId,
         userMessage: {
           id: userMsgId,
+          workspaceId: activeWsId,
           role: "user",
           content: message,
           metricsSnapshot,
@@ -1356,6 +1528,7 @@ Provide a sharp, data-backed, executive response citing their actual figures, co
         },
         assistantMessage: {
           id: assistantMsgId,
+          workspaceId: activeWsId,
           role: "assistant",
           content: replyContent,
           metricsSnapshot,
@@ -1371,41 +1544,47 @@ Provide a sharp, data-backed, executive response citing their actual figures, co
   app.delete("/api/copilot/messages", authenticateToken, (req, res) => {
     try {
       const user = (req as any).user;
-      db.prepare("DELETE FROM chat_messages WHERE user_id = ?").run(user.id);
+      const activeWsId = getActiveWorkspaceId(req, user.id);
+      db.prepare("DELETE FROM chat_messages WHERE user_id = ? AND workspace_id = ?").run(user.id, activeWsId);
 
       const historyRecords = db
-        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
-        .all(user.id) as any[];
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? AND workspace_id = ? ORDER BY period ASC")
+        .all(user.id, activeWsId) as any[];
       const latest = historyRecords.length > 0 ? historyRecords[historyRecords.length - 1] : null;
-      const rev = latest?.revenue || 99200;
-      const exp = latest?.expenses || 56200;
-      const margin = rev > 0 ? Number((((rev - exp) / rev) * 100).toFixed(1)) : 43.3;
-      const churn = latest?.churn_rate || 1.5;
+      const ws = getWorkspaceById(activeWsId, user.id);
+      const wsName = ws?.name || "Business Workspace";
+      const rev = latest?.revenue || 85000;
+      const exp = latest?.expenses || 50000;
+      const margin = rev > 0 ? Number((((rev - exp) / rev) * 100).toFixed(1)) : 41.2;
+      const churn = latest?.churn_rate || 1.8;
+      const cust = latest?.customers || 1800;
 
       const freshSnapshot = {
         revenue: rev,
         expenses: exp,
         margin,
         churn,
-        customers: latest?.customers || 2450,
+        customers: cust,
       };
 
       const initId = "chat_init_" + crypto.randomUUID();
       const now = new Date().toISOString();
-      const welcomeText = `Hello ${user.name || "Alex"}! Conversation history has been reset. Telemetry is synced: revenue is $${rev.toLocaleString()}/mo at ${margin}% operating margin with ${churn}% churn. How can I assist with your capital allocation, sensitivity models, or runway forecasts today?`;
+      const welcomeText = `Hello ${user.name || "Alex"}! Conversation thread for ${wsName} has been reset. Telemetry is synced: revenue is $${rev.toLocaleString()}/mo at ${margin}% operating margin with ${churn}% churn. How can I assist with your capital allocation, sensitivity models, or runway forecasts today?`;
 
       db.prepare(`
-        INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-      `).run(initId, user.id, "assistant", welcomeText, JSON.stringify(freshSnapshot), now);
+        INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(initId, user.id, activeWsId, "assistant", welcomeText, JSON.stringify(freshSnapshot), now);
 
-      logUserActivity(user.id, "AI_COPILOT_RESET", "Reset AI Financial Copilot conversation thread.");
+      logUserActivity(user.id, "AI_COPILOT_RESET", `Reset AI Financial Copilot conversation thread for ${wsName}.`);
 
       res.json({
         success: true,
+        activeWorkspaceId: activeWsId,
         message: "Conversation history cleared.",
         initialMessage: {
           id: initId,
+          workspaceId: activeWsId,
           role: "assistant",
           content: welcomeText,
           metricsSnapshot: freshSnapshot,
