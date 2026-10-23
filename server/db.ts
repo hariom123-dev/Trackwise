@@ -95,16 +95,79 @@ export function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS chat_messages (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL,
+      content TEXT NOT NULL,
+      metrics_snapshot_json TEXT,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      text TEXT NOT NULL,
+      type TEXT NOT NULL,
+      is_read INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL,
+      action TEXT NOT NULL,
+      details TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_timeseries_user_period ON timeseries_records(user_id, period);
     CREATE INDEX IF NOT EXISTS idx_reports_user ON analysis_reports(user_id);
     CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id);
+    CREATE INDEX IF NOT EXISTS idx_chat_user_created ON chat_messages(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read);
+    CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at);
   `);
 
   seedDemoData();
 }
 
 /**
- * Seed initial demo user and 12 months of rich data if not present
+ * Log user activity into audit_logs and optionally create a notification
+ */
+export function logUserActivity(
+  userId: string,
+  action: string,
+  details: string,
+  optionalNotification?: { title: string; text: string; type: "success" | "warning" | "info" }
+) {
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO audit_logs (id, user_id, action, details, created_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run("log_" + crypto.randomUUID(), userId, action, details, now);
+
+  if (optionalNotification) {
+    db.prepare(`
+      INSERT INTO notifications (id, user_id, title, text, type, is_read, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)
+    `).run(
+      "notif_" + crypto.randomUUID(),
+      userId,
+      optionalNotification.title,
+      optionalNotification.text,
+      optionalNotification.type,
+      now
+    );
+  }
+}
+
+/**
+ * Seed initial demo user and rich enterprise data if not present
  */
 function seedDemoData() {
   const demoEmail = "alex@kinetic.com";
@@ -422,5 +485,120 @@ function seedDemoData() {
     }
 
     console.log("🌱 Seeded 4 initial strategic insights for demo user.");
+  }
+
+  // Seed Notifications if none exist
+  const notifCount = (db.prepare("SELECT COUNT(*) as count FROM notifications WHERE user_id = ?").get(demoUserId) as any).count;
+  if (notifCount === 0) {
+    const initialNotifs = [
+      {
+        id: "notif_01",
+        userId: demoUserId,
+        title: "Revenue Milestone Reached",
+        text: "Monthly revenue reached $99,200 with an exceptional 43.3% operating margin.",
+        type: "success",
+        isRead: 0,
+        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "notif_02",
+        userId: demoUserId,
+        title: "Retention Efficiency Stable",
+        text: "Customer churn stabilized at 1.5% MoM, well below the 3.0% SaaS benchmark threshold.",
+        type: "info",
+        isRead: 0,
+        createdAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "notif_03",
+        userId: demoUserId,
+        title: "Anomaly Scan Completed",
+        text: "Autonomous anomaly check finished. Zero high-volatility financial vectors detected.",
+        type: "info",
+        isRead: 1,
+        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+
+    const insertNotif = db.prepare(`
+      INSERT INTO notifications (id, user_id, title, text, type, is_read, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    for (const n of initialNotifs) {
+      insertNotif.run(n.id, n.userId, n.title, n.text, n.type, n.isRead, n.createdAt);
+    }
+    console.log("🌱 Seeded initial notifications for demo user.");
+  }
+
+  // Seed Audit Logs if none exist
+  const auditCount = (db.prepare("SELECT COUNT(*) as count FROM audit_logs WHERE user_id = ?").get(demoUserId) as any).count;
+  if (auditCount === 0) {
+    const initialLogs = [
+      {
+        id: "log_01",
+        userId: demoUserId,
+        action: "TELEMETRY_INGESTION",
+        details: "Imported 12 months historical ledger records via multi-row pipeline.",
+        createdAt: new Date(Date.now() - 48 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "log_02",
+        userId: demoUserId,
+        action: "PREDICTION_GENERATED",
+        details: "Executed Dual Forecasting Engine for SaaS vertical with compound growth modeling.",
+        createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "log_03",
+        userId: demoUserId,
+        action: "SECURITY_KEY_ACCESSED",
+        details: "API token accessed from workspace developer settings.",
+        createdAt: new Date(Date.now() - 12 * 60 * 60 * 1000).toISOString(),
+      },
+      {
+        id: "log_04",
+        userId: demoUserId,
+        action: "INTELLIGENCE_SCAN_EXECUTED",
+        details: "Synthesized DACH regional enterprise expansion signal.",
+        createdAt: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
+      },
+    ];
+
+    const insertLog = db.prepare(`
+      INSERT INTO audit_logs (id, user_id, action, details, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+
+    for (const l of initialLogs) {
+      insertLog.run(l.id, l.userId, l.action, l.details, l.createdAt);
+    }
+    console.log("🌱 Seeded initial audit logs for demo user.");
+  }
+
+  // Seed Initial Chat Message if none exist
+  const chatCount = (db.prepare("SELECT COUNT(*) as count FROM chat_messages WHERE user_id = ?").get(demoUserId) as any).count;
+  if (chatCount === 0) {
+    const welcomeMsg = {
+      id: "chat_init_01",
+      userId: demoUserId,
+      role: "assistant",
+      content: "Hello Alex! I have loaded your 12-month financial telemetry. With your current revenue at $99,200/mo, operating margins at 43.3%, and customer churn at 1.5%, your business demonstrates exceptional capital efficiency (Rule of 40 score ~55%). How can I assist with your capital allocation, sensitivity models, or runway forecasts today?",
+      metricsSnapshot: JSON.stringify({
+        revenue: 99200,
+        expenses: 56200,
+        margin: 43.3,
+        churn: 1.5,
+        customers: 2450,
+      }),
+      createdAt: new Date(Date.now() - 1 * 60 * 60 * 1000).toISOString(),
+    };
+
+    db.prepare(`
+      INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(welcomeMsg.id, welcomeMsg.userId, welcomeMsg.role, welcomeMsg.content, welcomeMsg.metricsSnapshot, welcomeMsg.createdAt);
+
+    console.log("🌱 Seeded initial AI copilot message for demo user.");
   }
 }

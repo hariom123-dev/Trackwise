@@ -16,3 +16,5 @@ services:
         scope: run
       - key: RAZORPAY_KEY_SECRET
         scope: run
+      - key: JWT_SECRET
+        generateValue: true

@@ -52,9 +52,36 @@ TrackWise is a production-ready, full-stack predictive business intelligence Saa
 - Persisted bookmark toggles, reactions, and interactive action item checklists.
 - Autonomous **"Run Intelligence Scan"** tool synthesizing new market opportunities on demand.
 
-### 8. ⚙️ Settings & Client-Side Image Compression
-- Client-side HTML5 `<canvas>` avatar compression (max 256x256, JPEG quality 0.8) to prevent storage bloat.
-- Backend profile updates, current password verification, 2FA toggle, developer API key regeneration, and full account deletion.
+### 9. 🤖 Context-Aware AI Financial Analyst Copilot
+- Slide-over drawer (`src/components/AICopilotDrawer.tsx`) accessible via a floating "Ask AI Analyst" button and header shortcut.
+- Grounded in SQLite financial telemetry: answers using exact user numbers, MoM growth, operating margins, churn rate, and Rule of 40 score.
+- Full SQLite persistence (`chat_messages`) with conversation reset and re-seeding.
+- 1-click Quick Prompt Chips for unit economics diagnosis, margin/churn risks, runway forecasts, and investor briefings.
+- Resilient dual-engine response generation: Google Gemini 2.5/3.1 with an intelligent quantitative deterministic CFO fallback.
+
+### 10. 🎛️ Interactive "What-If" Scenario & Sensitivity Simulator
+- Real-time sensitivity modeling (`src/components/WhatIfScenarioSimulator.tsx`) in the Data Lab.
+- 4 interactive dynamic sliders:
+  1. Price / ARPU Shift (`-20%` to `+50%`)
+  2. Monthly Churn Reduction (`-3.0%` to `+3.0%`)
+  3. Outbound / Growth Boost (`-10%` to `+30%`)
+  4. Operating Expense Adjustment (`-30%` to `+50%`)
+- Dual-curve live Recharts (`ComposedChart`) comparing baseline vs. simulated 6-month trajectory and net operating profit with live cumulative delta calculations.
+
+### 11. 🏆 Executive SaaS Unit Economics Scorecard
+- Real-time calculations of Rule of 40 Score (`Annualized Growth % + Operating Margin %`) with status badges (`Elite >40%`, `Healthy 20-40%`, `Needs Focus <20%`).
+- Customer Lifetime Value (LTV), ARPU, LTV:CAC Multiple, estimated payback period, monthly net operating surplus, and capital runway.
+
+### 12. 🔔 Live Anomaly Detection & Activity Audit Log
+- Continuous anomaly detection hooks in time-series ingestion and AI predictions:
+  - Spiked churn (`> 5.0%`)
+  - Elevated operating burn (`expenses > 90% of revenue`)
+  - Revenue expansion milestones (`> 15% MoM`)
+- Real-time unread notification count on the header Bell icon.
+- Interactive Workspace Activity & Audit Log Modal displaying cryptographically tracked timestamps and actions from SQLite `audit_logs`.
+
+### 13. 📑 Multi-Sheet Excel Workbook Export (`.xlsx`)
+- 1-click download of a 3-sheet `.xlsx` model containing `Historical_TimeSeries`, `AI_6Month_Forecast`, and `Unit_Economics_Summary`.
 
 ---
 
@@ -147,6 +174,15 @@ You can sign in immediately using the pre-seeded demo account or click **"Fill D
 - `POST /api/insights/:id/toggle-like` - Increment/decrement reaction counter
 - `POST /api/insights/:id/toggle-save` - Toggle saved bookmark status
 - `PUT /api/insights/:id/actions` - Persist completed action checklist state
+
+### AI Financial Copilot
+- `GET /api/copilot/messages` - Retrieve user's persisted copilot chat history
+- `POST /api/copilot/ask` - Submit financial query; returns ground-truth CFO analysis with metrics snapshot
+- `DELETE /api/copilot/messages` - Reset chat history and re-seed welcome telemetry
+
+### Live Notifications & Activity Audit Logs
+- `GET /api/notifications` - Retrieve live anomaly notifications, unread count, and latest 25 audit logs
+- `POST /api/notifications/mark-read` - Mark specific notification or all notifications as read
 
 ### Payments
 - `POST /api/razorpay/create-order` - Create Razorpay order or simulated order

@@ -18,14 +18,41 @@ import {
   ArrowRight,
   Sparkles,
   ChevronRight,
-  LogOut
+  LogOut,
+  AlertTriangle,
+  CheckCircle2,
+  Info,
+  Clock,
+  History,
+  ShieldCheck,
+  CheckCheck,
+  Bot
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useAuth } from '../context/AuthContext';
 import CommandSearch from './CommandSearch';
+import AICopilotDrawer from './AICopilotDrawer';
+import { apiFetch } from '../utils/api';
+import { toast } from 'sonner';
 
 interface LayoutProps {
   children: React.ReactNode;
+}
+
+interface NotificationItem {
+  id: string;
+  title: string;
+  text: string;
+  type: 'success' | 'warning' | 'info';
+  isRead: boolean;
+  createdAt: string;
+}
+
+interface AuditLogItem {
+  id: string;
+  action: string;
+  details: string;
+  createdAt: string;
 }
 
 export default function Layout({ children }: LayoutProps) {
@@ -37,6 +64,60 @@ export default function Layout({ children }: LayoutProps) {
   const [isGridOpen, setIsGridOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isCopilotOpen, setIsCopilotOpen] = useState(false);
+  const [isAuditModalOpen, setIsAuditModalOpen] = useState(false);
+
+  // Live Notifications & Audit Logs State
+  const [notifications, setNotifications] = useState<NotificationItem[]>([]);
+  const [unreadCount, setUnreadCount] = useState<number>(0);
+  const [auditLogs, setAuditLogs] = useState<AuditLogItem[]>([]);
+  const [auditSearch, setAuditSearch] = useState('');
+
+  // Fetch live notifications and audit logs
+  const fetchNotifications = async () => {
+    try {
+      const res = await apiFetch<{
+        notifications: NotificationItem[];
+        unreadCount: number;
+        auditLogs: AuditLogItem[];
+      }>('/api/notifications');
+
+      if (res) {
+        setNotifications(res.notifications || []);
+        setUnreadCount(res.unreadCount || 0);
+        setAuditLogs(res.auditLogs || []);
+      }
+    } catch (err: any) {
+      console.warn('Could not fetch notifications:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchNotifications();
+    const interval = setInterval(fetchNotifications, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const markNotificationRead = async (id?: string) => {
+    try {
+      await apiFetch('/api/notifications/mark-read', {
+        method: 'POST',
+        body: JSON.stringify({ id: id || 'all' }),
+      });
+
+      if (id && id !== 'all') {
+        setNotifications((prev) =>
+          prev.map((n) => (n.id === id ? { ...n, isRead: true } : n))
+        );
+        setUnreadCount((c) => Math.max(0, c - 1));
+      } else {
+        setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+        setUnreadCount(0);
+      }
+    } catch (err: any) {
+      toast.error('Failed to update notification status.');
+    }
+  };
 
   // Global ⌘K / Ctrl+K keyboard shortcut
   useEffect(() => {
@@ -67,12 +148,6 @@ export default function Layout({ children }: LayoutProps) {
     { icon: Search, label: 'Discovery', desc: 'Explore trends', color: 'bg-rose-600', path: '/insights' },
   ];
 
-  const notifications = [
-    { title: 'Telemetry Updated', text: 'Financial metrics synced with SQLite store.', time: 'Just now', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50' },
-    { title: 'New Market Signal', text: 'AI engine generated regional expansion insight.', time: '20m ago', icon: Lightbulb, color: 'text-indigo-600 bg-indigo-50' },
-    { title: 'System Engine', text: 'Deterministic ML models running at 100% precision.', time: '1h ago', icon: Settings, color: 'text-slate-600 bg-slate-100' },
-  ];
-
   const planName = 
     user?.planId === 'enterprise' 
       ? 'Enterprise Plan Active' 
@@ -91,10 +166,18 @@ export default function Layout({ children }: LayoutProps) {
   const userRole = user?.role || 'Lead Strategist';
   const userAvatar = user?.avatar || 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80';
 
+  const filteredAuditLogs = auditLogs.filter((log) =>
+    log.action.toLowerCase().includes(auditSearch.toLowerCase()) ||
+    log.details.toLowerCase().includes(auditSearch.toLowerCase())
+  );
+
   return (
     <div className="flex min-h-screen bg-[#f8fafc] font-sans text-slate-900 antialiased">
       {/* Command Palette */}
       <CommandSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+
+      {/* AI Financial Copilot Drawer */}
+      <AICopilotDrawer isOpen={isCopilotOpen} onClose={() => setIsCopilotOpen(false)} />
 
       {/* Mobile Sidebar Backdrop */}
       <AnimatePresence>
@@ -104,7 +187,7 @@ export default function Layout({ children }: LayoutProps) {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setIsSidebarOpen(false)}
-            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[60] lg:hidden"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-[60] lg:hidden"
           />
         )}
       </AnimatePresence>
@@ -144,7 +227,7 @@ export default function Layout({ children }: LayoutProps) {
                 onClick={() => setIsSidebarOpen(false)}
                 className={`flex items-center justify-between px-3.5 py-2.5 rounded-xl text-sm font-medium transition-all ${
                   isActive 
-                    ? 'text-indigo-950 font-bold bg-indigo-50/80 border-l-2 border-indigo-600 shadow-xs' 
+                    ? 'text-indigo-950 font-bold bg-indigo-50/80 border-l-2 border-indigo-600 shadow-2xs' 
                     : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100/70'
                 }`}
               >
@@ -171,7 +254,7 @@ export default function Layout({ children }: LayoutProps) {
           </p>
           <Link 
             to="/subscription" 
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-xs transition-colors"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-2xs transition-colors"
           >
             Manage Plan <ArrowRight size={12} />
           </Link>
@@ -186,7 +269,7 @@ export default function Layout({ children }: LayoutProps) {
             <img 
               src={userAvatar} 
               alt={userName} 
-              className="w-8 h-8 rounded-full object-cover ring-2 ring-slate-100 shadow-xs shrink-0"
+              className="w-8 h-8 rounded-full object-cover ring-2 ring-slate-100 shadow-2xs shrink-0"
               referrerPolicy="no-referrer"
             />
             <div className="overflow-hidden flex-1 min-w-0">
@@ -242,15 +325,33 @@ export default function Layout({ children }: LayoutProps) {
           </div>
           
           <div className="flex items-center gap-2 sm:gap-3">
+            {/* AI Financial Copilot Header Trigger Button */}
+            <button
+              onClick={() => setIsCopilotOpen(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200/80 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer"
+              title="Open AI Analyst Copilot Drawer"
+            >
+              <Sparkles size={14} className="text-emerald-500" />
+              <span className="hidden md:inline">AI Analyst</span>
+            </button>
+
             {/* Notification Drawer Button */}
             <div className="relative">
               <button 
-                onClick={() => { setIsNotifOpen(!isNotifOpen); setIsGridOpen(false); }}
+                onClick={() => { 
+                  setIsNotifOpen(!isNotifOpen); 
+                  setIsGridOpen(false); 
+                  if (!isNotifOpen) fetchNotifications();
+                }}
                 className={`p-2 rounded-xl text-slate-500 hover:text-slate-800 hover:bg-slate-100 transition-colors relative ${isNotifOpen ? 'bg-slate-100 text-slate-900' : ''}`}
                 aria-label="Notifications"
               >
                 <Bell size={18} />
-                <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-indigo-600 rounded-full ring-2 ring-white" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 bg-rose-600 text-white text-[10px] font-bold rounded-full ring-2 ring-white flex items-center justify-center animate-pulse">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
               </button>
 
               <AnimatePresence>
@@ -262,31 +363,88 @@ export default function Layout({ children }: LayoutProps) {
                       animate={{ opacity: 1, y: 0, scale: 1 }}
                       exit={{ opacity: 0, y: 8, scale: 0.98 }}
                       transition={{ duration: 0.15 }}
-                      className="absolute right-0 mt-2 w-80 bg-white rounded-2xl shadow-xl border border-slate-200/80 p-4 z-20"
+                      className="absolute right-0 mt-2 w-80 sm:w-96 bg-white rounded-2xl shadow-xl border border-slate-200/80 p-4 z-20"
                     >
                       <div className="flex items-center justify-between mb-3 px-1">
-                        <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Notifications</h4>
-                        <span className="text-[10px] font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">3 New</span>
+                        <div className="flex items-center gap-2">
+                          <h4 className="text-xs font-bold text-slate-900 uppercase tracking-wider">Live Anomaly Alerts</h4>
+                          {unreadCount > 0 && (
+                            <span className="text-[10px] font-semibold text-rose-600 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
+                              {unreadCount} Unread
+                            </span>
+                          )}
+                        </div>
+                        {unreadCount > 0 && (
+                          <button
+                            onClick={() => markNotificationRead('all')}
+                            className="text-[11px] font-semibold text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1"
+                          >
+                            <CheckCheck size={12} />
+                            Mark all read
+                          </button>
+                        )}
                       </div>
-                      <div className="space-y-2">
-                        {notifications.map((notif, i) => (
-                          <div key={i} className="flex gap-3 p-2.5 hover:bg-slate-50 rounded-xl transition-colors cursor-pointer">
-                            <div className={`mt-0.5 p-2 rounded-lg ${notif.color} shrink-0`}>
-                              <notif.icon size={15} />
-                            </div>
-                            <div>
-                              <p className="text-xs font-bold text-slate-900">{notif.title}</p>
-                              <p className="text-xs text-slate-500 leading-tight mt-0.5">{notif.text}</p>
-                              <p className="text-[10px] text-slate-400 mt-1 font-medium">{notif.time}</p>
-                            </div>
+
+                      <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+                        {notifications.length === 0 ? (
+                          <div className="py-6 text-center text-slate-400 text-xs">
+                            No notifications yet.
                           </div>
-                        ))}
+                        ) : (
+                          notifications.map((notif) => {
+                            const isWarning = notif.type === 'warning';
+                            const isSuccess = notif.type === 'success';
+                            const IconComponent = isWarning ? AlertTriangle : isSuccess ? CheckCircle2 : Info;
+                            const badgeColor = isWarning 
+                              ? 'text-amber-600 bg-amber-50 border border-amber-200' 
+                              : isSuccess 
+                              ? 'text-emerald-600 bg-emerald-50 border border-emerald-200' 
+                              : 'text-indigo-600 bg-indigo-50 border border-indigo-200';
+
+                            return (
+                              <div 
+                                key={notif.id} 
+                                onClick={() => !notif.isRead && markNotificationRead(notif.id)}
+                                className={`flex gap-3 p-2.5 rounded-xl transition-all cursor-pointer border ${
+                                  notif.isRead 
+                                    ? 'bg-slate-50/70 border-slate-100 opacity-75' 
+                                    : 'bg-white border-slate-200 shadow-2xs hover:border-indigo-200'
+                                }`}
+                              >
+                                <div className={`p-2 rounded-lg ${badgeColor} shrink-0 self-start`}>
+                                  <IconComponent size={15} />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center justify-between gap-1">
+                                    <p className={`text-xs font-bold truncate ${notif.isRead ? 'text-slate-700' : 'text-slate-900'}`}>
+                                      {notif.title}
+                                    </p>
+                                    {!notif.isRead && (
+                                      <span className="w-2 h-2 rounded-full bg-rose-500 shrink-0" />
+                                    )}
+                                  </div>
+                                  <p className="text-[11px] text-slate-500 leading-snug mt-0.5 line-clamp-2">
+                                    {notif.text}
+                                  </p>
+                                  <p className="text-[9px] text-slate-400 mt-1 font-medium">
+                                    {new Date(notif.createdAt).toLocaleDateString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                                  </p>
+                                </div>
+                              </div>
+                            );
+                          })
+                        )}
                       </div>
+
                       <button 
-                        onClick={() => { setIsNotifOpen(false); navigate('/insights'); }}
-                        className="w-full mt-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors border border-indigo-100"
+                        onClick={() => { 
+                          setIsNotifOpen(false); 
+                          setIsAuditModalOpen(true); 
+                        }}
+                        className="w-full mt-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors border border-indigo-100 flex items-center justify-center gap-1.5 cursor-pointer"
                       >
-                        View Activity Log
+                        <History size={14} />
+                        View Activity & Audit Log
                       </button>
                     </motion.div>
                   </>
@@ -328,9 +486,9 @@ export default function Layout({ children }: LayoutProps) {
                               setIsGridOpen(false);
                               navigate(action.path);
                             }}
-                            className="group flex flex-col items-center p-3 rounded-xl hover:bg-slate-50 border border-slate-100 transition-all text-center"
+                            className="group flex flex-col items-center p-3 rounded-xl hover:bg-slate-50 border border-slate-100 transition-all text-center cursor-pointer"
                           >
-                            <div className={`p-2.5 rounded-xl ${action.color} text-white shadow-xs group-hover:scale-105 transition-transform`}>
+                            <div className={`p-2.5 rounded-xl ${action.color} text-white shadow-2xs group-hover:scale-105 transition-transform`}>
                               <action.icon size={18} />
                             </div>
                             <span className="mt-2 text-xs font-bold text-slate-900">{action.label}</span>
@@ -375,6 +533,147 @@ export default function Layout({ children }: LayoutProps) {
           {children}
         </main>
       </div>
+
+      {/* Floating "Ask AI Analyst" Copilot Button */}
+      <div className="fixed bottom-6 right-6 z-40">
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => setIsCopilotOpen(true)}
+          className="group flex items-center gap-2.5 px-4 py-3 bg-gradient-to-r from-indigo-900 via-indigo-950 to-slate-900 text-white rounded-2xl shadow-xl shadow-indigo-950/25 hover:shadow-2xl hover:shadow-indigo-950/40 border border-indigo-700/50 transition-all cursor-pointer"
+        >
+          <div className="relative">
+            <Sparkles size={18} className="text-emerald-400 group-hover:rotate-12 transition-transform" />
+            <span className="absolute -top-1 -right-1 w-2 h-2 bg-emerald-400 rounded-full animate-ping" />
+          </div>
+          <span className="text-xs font-bold tracking-tight">Ask AI Analyst</span>
+          <span className="px-1.5 py-0.5 rounded-md bg-white/10 text-[9px] font-semibold text-indigo-200">
+            CFO
+          </span>
+        </motion.button>
+      </div>
+
+      {/* Workspace Activity & Audit Log Modal */}
+      <AnimatePresence>
+        {isAuditModalOpen && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsAuditModalOpen(false)}
+              className="fixed inset-0 bg-slate-900/50 backdrop-blur-xs"
+            />
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.96, y: 10 }}
+              className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[85vh] z-10"
+            >
+              {/* Modal Header */}
+              <div className="p-5 sm:p-6 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-white/10 border border-white/20 flex items-center justify-center text-emerald-400 shadow-inner">
+                    <History size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-bold tracking-tight">Workspace Audit & Activity Log</h3>
+                    <p className="text-xs text-slate-300">
+                      Cryptographically tracked activity log and telemetry anomalies
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsAuditModalOpen(false)}
+                  className="p-2 text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-colors"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              {/* Modal Filter */}
+              <div className="p-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-3">
+                <div className="relative flex-1">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={auditSearch}
+                    onChange={(e) => setAuditSearch(e.target.value)}
+                    placeholder="Filter audit actions (e.g., ANOMALY, PREDICTION, IMPORT)..."
+                    className="w-full bg-white border border-slate-200 rounded-xl pl-9 pr-3 py-1.5 text-xs text-slate-800 focus:outline-hidden focus:border-indigo-600 transition-colors"
+                  />
+                </div>
+                <span className="text-xs font-semibold text-slate-500 whitespace-nowrap">
+                  {filteredAuditLogs.length} events logged
+                </span>
+              </div>
+
+              {/* Modal Log List */}
+              <div className="p-4 sm:p-6 overflow-y-auto space-y-3 flex-1 bg-slate-50/50">
+                {filteredAuditLogs.length === 0 ? (
+                  <div className="py-12 text-center text-slate-400 text-xs">
+                    No matching audit records found.
+                  </div>
+                ) : (
+                  filteredAuditLogs.map((log) => {
+                    const isAnomaly = log.action.includes('ANOMALY');
+                    const isMilestone = log.action.includes('MILESTONE');
+                    const isAi = log.action.includes('AI') || log.action.includes('PREDICTION');
+                    const isSecurity = log.action.includes('SECURITY') || log.action.includes('AUTH');
+
+                    const badgeStyle = isAnomaly
+                      ? 'bg-rose-50 text-rose-700 border-rose-200'
+                      : isMilestone
+                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                      : isAi
+                      ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                      : isSecurity
+                      ? 'bg-purple-50 text-purple-700 border-purple-200'
+                      : 'bg-slate-100 text-slate-700 border-slate-200';
+
+                    return (
+                      <div
+                        key={log.id}
+                        className="bg-white border border-slate-200/80 rounded-2xl p-4 shadow-2xs hover:shadow-xs transition-shadow flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                      >
+                        <div className="space-y-1 flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold border ${badgeStyle}`}>
+                              {log.action}
+                            </span>
+                            <span className="text-[10px] text-slate-400 font-medium flex items-center gap-1">
+                              <Clock size={10} />
+                              {new Date(log.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-700 font-medium leading-relaxed">
+                            {log.details}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-white border-t border-slate-200 flex items-center justify-between">
+                <span className="text-[11px] text-slate-400 flex items-center gap-1">
+                  <ShieldCheck size={13} className="text-emerald-600" />
+                  SQLite Immutable Audit Log
+                </span>
+                <button
+                  onClick={() => setIsAuditModalOpen(false)}
+                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Close Audit Viewer
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

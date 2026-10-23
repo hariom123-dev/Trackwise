@@ -11,7 +11,7 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { z } from "zod";
 import rateLimit from "express-rate-limit";
-import { db, initDatabase } from "./server/db.ts";
+import { db, initDatabase, logUserActivity } from "./server/db.ts";
 
 dotenv.config();
 
@@ -607,6 +607,41 @@ async function startServer() {
 
       insertMany(rows);
 
+      // Automated Anomaly Detection Hook across imported records
+      for (const r of rows) {
+        if (r.churnRate > 5) {
+          logUserActivity(
+            user.id,
+            "ANOMALY_HIGH_CHURN",
+            `Detected elevated customer churn rate of ${r.churnRate.toFixed(1)}% in period ${r.period} (threshold: 5.0%).`,
+            {
+              title: "High Churn Anomaly Detected",
+              text: `Churn rate spiked to ${r.churnRate.toFixed(1)}% in ${r.period}. Customer retention intervention recommended.`,
+              type: "warning",
+            }
+          );
+        }
+        if (r.revenue > 0 && r.expenses > r.revenue * 0.9) {
+          const burnPct = ((r.expenses / r.revenue) * 100).toFixed(0);
+          logUserActivity(
+            user.id,
+            "ANOMALY_HIGH_BURN",
+            `Operating expenses ($${r.expenses.toLocaleString()}) consume ${burnPct}% of revenue in period ${r.period} (threshold: 90%).`,
+            {
+              title: "High Burn Rate Warning",
+              text: `Operating expenses in ${r.period} represent ${burnPct}% of monthly revenue. Runway may be impacted.`,
+              type: "warning",
+            }
+          );
+        }
+      }
+
+      logUserActivity(
+        user.id,
+        "TIMESERIES_DATA_IMPORTED",
+        `Ingested ${rows.length} time-series record(s) into workspace telemetry.`
+      );
+
       // Return updated records
       const updated = db
         .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
@@ -770,6 +805,62 @@ async function startServer() {
         finalReport.efficiencyScore,
         JSON.stringify(input),
         JSON.stringify(finalReport)
+      );
+
+      // Automated Anomaly Detection Hook on prediction inputs
+      if (input.churnRate > 5) {
+        logUserActivity(
+          user.id,
+          "ANOMALY_HIGH_CHURN",
+          `Customer churn rate of ${input.churnRate.toFixed(1)}% exceeds healthy 5.0% threshold.`,
+          {
+            title: "High Churn Anomaly Detected",
+            text: `Modeled churn rate of ${input.churnRate.toFixed(1)}% indicates elevated customer attrition risk.`,
+            type: "warning",
+          }
+        );
+      }
+      if (input.revenue > 0 && input.expenses > input.revenue * 0.9) {
+        const burnPct = ((input.expenses / input.revenue) * 100).toFixed(0);
+        logUserActivity(
+          user.id,
+          "ANOMALY_HIGH_BURN",
+          `Operating expenses ($${input.expenses.toLocaleString()}) consume ${burnPct}% of revenue.`,
+          {
+            title: "High Burn Rate Warning",
+            text: `Operating expenses consume ${burnPct}% of monthly revenue. Capital conservation advised.`,
+            type: "warning",
+          }
+        );
+      }
+      if (input.historyRows && input.historyRows.length >= 2) {
+        const sorted = [...input.historyRows].sort((a, b) => a.period.localeCompare(b.period));
+        const prevRev = sorted[sorted.length - 2].revenue;
+        const currRev = sorted[sorted.length - 1].revenue;
+        if (prevRev > 0 && (currRev - prevRev) / prevRev > 0.15) {
+          const momGain = (((currRev - prevRev) / prevRev) * 100).toFixed(1);
+          logUserActivity(
+            user.id,
+            "MILESTONE_REVENUE_EXPANSION",
+            `Monthly revenue expanded by ${momGain}% MoM to $${currRev.toLocaleString()}.`,
+            {
+              title: "Growth Milestone Reached!",
+              text: `Monthly revenue expanded by ${momGain}% MoM to $${currRev.toLocaleString()}. Outstanding scaling momentum.`,
+              type: "success",
+            }
+          );
+        }
+      }
+
+      logUserActivity(
+        user.id,
+        "FINANCIAL_PREDICTION_GENERATED",
+        `Generated 6-month AI forecast for ${input.industry} ($${input.revenue.toLocaleString()} revenue).`,
+        {
+          title: "Financial Model Generated",
+          text: `AI 6-month forecast model generated for ${input.industry}.`,
+          type: "info",
+        }
       );
 
       res.json({
@@ -983,6 +1074,397 @@ async function startServer() {
       res.json({ success: true, actionItems });
     } catch (err: any) {
       res.status(500).json({ error: "Failed to update action items." });
+    }
+  });
+
+  // ==========================================
+  // Deterministic Copilot CFO Response Generator
+  // ==========================================
+  function generateDeterministicCopilotResponse(
+    userQuery: string,
+    snapshot: {
+      revenue: number;
+      expenses: number;
+      margin: number;
+      churn: number;
+      customers: number;
+      momGrowth: number;
+      arpu: number;
+      ltv: number;
+      ruleOf40: number;
+      periodCount: number;
+    },
+    historyRecords: any[]
+  ): string {
+    const q = userQuery.toLowerCase();
+    const netIncome = snapshot.revenue - snapshot.expenses;
+    const expenseRatio = snapshot.revenue > 0 ? ((snapshot.expenses / snapshot.revenue) * 100).toFixed(1) : "0";
+    const ruleOf40Status = snapshot.ruleOf40 >= 40 ? "Elite (>40%)" : snapshot.ruleOf40 >= 20 ? "Healthy (20-40%)" : "Needs Attention (<20%)";
+
+    if (q.includes("rule of 40") || q.includes("unit economics")) {
+      return `### 📊 SaaS Unit Economics & Rule of 40 Diagnostic
+
+**Current Rule of 40 Score:** **${snapshot.ruleOf40}%** — Status: **${ruleOf40Status}**
+
+#### Breakdown:
+- **Annualized Growth Rate:** ~${(snapshot.momGrowth * 12).toFixed(1)}% (based on ${snapshot.momGrowth}% MoM expansion)
+- **Operating Margin:** **${snapshot.margin}%** ($${netIncome.toLocaleString()}/mo net operating income)
+- **ARPU:** **$${snapshot.arpu.toFixed(2)}** across ${snapshot.customers.toLocaleString()} active customer accounts
+- **Estimated Customer LTV:** **$${snapshot.ltv.toLocaleString()}** (calculated at ${snapshot.churn}% monthly churn)
+
+#### CFO Verdict:
+${
+  snapshot.ruleOf40 >= 40
+    ? `Your capital efficiency is exceptional. With an operating margin of ${snapshot.margin}% and steady revenue expansion, TrackWise benchmarks in the top 15% of bootstrapped and high-efficiency SaaS enterprises.`
+    : `While your margins are stable at ${snapshot.margin}%, increasing top-line growth or optimizing gross margins will help cross the 40% benchmark.`
+}
+
+#### Strategic Recommendations:
+1. **Expansion Revenue:** Introduce tier-based add-ons to increase ARPU from $${snapshot.arpu.toFixed(0)} to $${(snapshot.arpu * 1.25).toFixed(0)}.
+2. **CAC Optimization:** Reinvest up to 15% of monthly operating surplus ($${Math.round(netIncome * 0.15).toLocaleString()}/mo) into proven acquisition channels.`;
+    }
+
+    if (q.includes("risk") || q.includes("margin") || q.includes("churn")) {
+      return `### ⚠️ Margin & Customer Churn Risk Analysis
+
+#### Primary Telemetry Audit:
+- **Operating Expense Drag:** Operating expenses consume **${expenseRatio}%** of monthly gross revenue ($${snapshot.expenses.toLocaleString()} out of $${snapshot.revenue.toLocaleString()}).
+- **Customer Churn:** Currently at **${snapshot.churn}%/mo** (~${Math.round(snapshot.customers * (snapshot.churn / 100))} customer accounts churning each cycle).
+- **Monthly Revenue at Risk:** Approx **$${Math.round((snapshot.revenue * snapshot.churn) / 100).toLocaleString()}** lost monthly to attrition.
+
+#### Risk Assessment:
+${
+  snapshot.churn > 3.0
+    ? `🔴 **Elevated Retention Risk:** At ${snapshot.churn}%, your leaky bucket is eroding enterprise value. Customer onboarding checkpoints should be prioritized.`
+    : `🟢 **Controlled Churn Profile:** At ${snapshot.churn}%, your monthly attrition is well below the SaaS median (3.5%). Focus on net retention expansion.`
+}
+
+#### Prescriptive Action Plan:
+1. **Onboarding Milestones:** Automate time-to-value notifications for the first 14 days of account activation.
+2. **Fixed vs. Variable Cost Segregation:** Audit software subscriptions and cloud compute to trim 5-8% ($${Math.round(snapshot.expenses * 0.06).toLocaleString()}/mo) in non-core overhead.`;
+    }
+
+    if (q.includes("250k") || q.includes("hit") || q.includes("target") || q.includes("grow")) {
+      const target = 250000;
+      const gap = Math.max(0, target - snapshot.revenue);
+      const monthsAtCurrent = snapshot.momGrowth > 0
+        ? Math.ceil(Math.log(target / Math.max(1, snapshot.revenue)) / Math.log(1 + snapshot.momGrowth / 100))
+        : 18;
+
+      return `### 🎯 Strategic Bridge to $250,000 MRR
+
+#### Growth Bridge Metrics:
+- **Current MRR:** $${snapshot.revenue.toLocaleString()}
+- **Revenue Expansion Required:** **+$${gap.toLocaleString()}/mo**
+- **Estimated Runway at ${snapshot.momGrowth}% MoM:** **~${monthsAtCurrent} months**
+
+#### Churn Reduction Leverage:
+- Cutting churn from **${snapshot.churn}%** down to **${Math.max(0.5, snapshot.churn - 0.7).toFixed(1)}%** preserves an estimated **$${Math.round(snapshot.revenue * 0.007 * 12).toLocaleString()}** in cumulative annual recurring revenue.
+- Compounded over 12 months, reduced attrition accelerates target attainment by **${Math.max(2, Math.round(monthsAtCurrent * 0.25))} months**.
+
+#### Recommended 3-Step Playbook:
+1. **Contract Annualization:** Offer a 15% discount for upfront annual commitments to eliminate monthly churn risk and inject immediate cash reserves.
+2. **Pricing Optimization:** Implement a 10-15% ARPU expansion on top-tier usage modules ($${snapshot.arpu.toFixed(0)} ➔ $${(snapshot.arpu * 1.15).toFixed(0)}).
+3. **Targeted Outbound:** Allocate $${Math.round(snapshot.revenue * 0.08).toLocaleString()}/mo toward enterprise accounts matching your highest LTV cohorts ($${snapshot.ltv.toLocaleString()}+).`;
+    }
+
+    if (q.includes("trajectory") || q.includes("investor") || q.includes("summarize") || q.includes("12-month")) {
+      const firstPeriod = historyRecords.length > 0 ? historyRecords[0] : null;
+      const startingRev = firstPeriod ? firstPeriod.revenue : snapshot.revenue * 0.65;
+      const cumulativeGrowth = startingRev > 0 ? (((snapshot.revenue - startingRev) / startingRev) * 100).toFixed(1) : "N/A";
+
+      return `### 📈 Executive 12-Month Investor Briefing
+
+**Company Telemetry:** TrackWise AI Business Analytics Platform
+
+#### Core Performance Highlights:
+- **Current MRR:** **$${snapshot.revenue.toLocaleString()}** (expanded from initial baseline of $${startingRev.toLocaleString()}, representing **+${cumulativeGrowth}%** total scale)
+- **Capital Efficiency (Rule of 40):** **${snapshot.ruleOf40}%** — Demonstrates exceptional cash generation and unit economics.
+- **Monthly Net Operating Surplus:** **+$${netIncome.toLocaleString()}/mo** (${snapshot.margin}% operating margin).
+- **Customer Base:** **${snapshot.customers.toLocaleString()}** accounts with **$${snapshot.arpu.toFixed(2)}** ARPU and **${snapshot.churn}%** churn.
+
+#### Capital Allocation & Unit Economics:
+- **Lifetime Value (LTV):** $${snapshot.ltv.toLocaleString()} per customer account.
+- **Burn Multiple:** Net Cash Flow Positive (0.00x burn multiple; operations fully self-funded).
+- **Next 6-Month Trajectory:** Projected to scale past **$${Math.round(snapshot.revenue * 1.35).toLocaleString()} MRR** at sustained margins.`;
+    }
+
+    // Default intelligent CFO analysis
+    return `### 💡 Strategic Financial Advisory
+
+Based on your current SQLite telemetry snapshot:
+- **Monthly Revenue:** **$${snapshot.revenue.toLocaleString()}**
+- **Operating Expenses:** **$${snapshot.expenses.toLocaleString()}** (${expenseRatio}% of revenue)
+- **Net Operating Income:** **+$${netIncome.toLocaleString()}/mo** (${snapshot.margin}% margin)
+- **Active Accounts:** **${snapshot.customers.toLocaleString()}** | **ARPU:** $${snapshot.arpu.toFixed(2)}
+- **Monthly Churn:** **${snapshot.churn}%** | **LTV:** $${snapshot.ltv.toLocaleString()}
+- **Rule of 40 Index:** **${snapshot.ruleOf40}%** (${ruleOf40Status})
+
+#### Key Financial Observations:
+1. **Solvency & Capital Efficiency:** Your business operates with a healthy **${snapshot.margin}%** margin, providing ample runway and freedom from emergency capital raises.
+2. **Growth vs. Margin Balance:** With an annualized expansion rate of ~${(snapshot.momGrowth * 12).toFixed(1)}%, your Rule of 40 of ${snapshot.ruleOf40}% reflects disciplined capital deployment.
+
+Feel free to ask for a deeper breakdown of your pricing sensitivity, cost reduction vectors, or a customized 6-month simulation!`;
+  }
+
+  // ==========================================
+  // AI Financial Copilot Endpoints
+  // ==========================================
+  app.get("/api/copilot/messages", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const rows = db
+        .prepare("SELECT * FROM chat_messages WHERE user_id = ? ORDER BY created_at ASC")
+        .all(user.id) as any[];
+
+      const messages = rows.map((r) => ({
+        id: r.id,
+        role: r.role,
+        content: r.content,
+        metricsSnapshot: r.metrics_snapshot_json ? JSON.parse(r.metrics_snapshot_json) : null,
+        createdAt: r.created_at,
+      }));
+
+      res.json({ messages });
+    } catch (err: any) {
+      console.error("Copilot fetch error:", err);
+      res.status(500).json({ error: "Failed to load chat history." });
+    }
+  });
+
+  const copilotAskSchema = z.object({
+    message: z.string().min(1, "Message cannot be empty").max(2000, "Message cannot exceed 2000 characters"),
+  });
+
+  app.post("/api/copilot/ask", authenticateToken, async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const parsed = copilotAskSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues[0].message });
+      }
+
+      const { message } = parsed.data;
+
+      // Telemetry Context from SQLite
+      const historyRecords = db
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
+        .all(user.id) as any[];
+
+      const latest = historyRecords.length > 0 ? historyRecords[historyRecords.length - 1] : null;
+      const revenue = latest?.revenue || 99200;
+      const expenses = latest?.expenses || 56200;
+      const customers = latest?.customers || 2450;
+      const churn = latest?.churn_rate || 1.5;
+      const operatingMargin = revenue > 0 ? ((revenue - expenses) / revenue) * 100 : 0;
+
+      let momGrowth = 5.0;
+      if (historyRecords.length >= 2) {
+        const prev = historyRecords[historyRecords.length - 2];
+        if (prev.revenue > 0) {
+          momGrowth = ((revenue - prev.revenue) / prev.revenue) * 100;
+        }
+      }
+
+      const arpu = customers > 0 ? revenue / customers : 0;
+      const ltv = churn > 0 ? arpu / (churn / 100) : arpu * 24;
+      const annualizedGrowth = momGrowth * 12;
+      const ruleOf40 = Math.round((annualizedGrowth + operatingMargin) * 10) / 10;
+
+      const metricsSnapshot = {
+        revenue,
+        expenses,
+        margin: Number(operatingMargin.toFixed(1)),
+        churn: Number(churn.toFixed(1)),
+        customers,
+        momGrowth: Number(momGrowth.toFixed(1)),
+        arpu: Number(arpu.toFixed(1)),
+        ltv: Number(ltv.toFixed(0)),
+        ruleOf40,
+        periodCount: historyRecords.length,
+      };
+
+      // Save user message to SQLite
+      const userMsgId = "chat_usr_" + crypto.randomUUID();
+      const now = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(userMsgId, user.id, "user", message, JSON.stringify(metricsSnapshot), now);
+
+      // Assistant response generation (Gemini + Deterministic Fallback)
+      let replyContent = "";
+      const ai = getGenAI();
+      if (ai) {
+        try {
+          const aiRes = await ai.models.generateContent({
+            model: "gemini-2.5-flash",
+            contents: `You are a Senior CFO & Quantitative Business Analyst for TrackWise.
+The user asks: "${message}"
+
+Here is their exact real-time financial telemetry from SQLite:
+- Current Monthly Revenue: $${revenue.toLocaleString()}
+- Current Monthly Expenses: $${expenses.toLocaleString()}
+- Operating Margin: ${metricsSnapshot.margin}%
+- MoM Revenue Growth: ${metricsSnapshot.momGrowth}% (Annualized: ~${annualizedGrowth.toFixed(1)}%)
+- Active Customers: ${customers.toLocaleString()}
+- Monthly Churn Rate: ${metricsSnapshot.churn}%
+- ARPU (Avg Revenue Per User): $${metricsSnapshot.arpu}
+- Estimated LTV: $${metricsSnapshot.ltv.toLocaleString()}
+- Rule of 40 Score: ${ruleOf40}%
+- Historical Periods Tracked: ${historyRecords.length} month(s)
+
+Provide a sharp, data-backed, executive response citing their actual figures, computing exact mathematical breakdowns, diagnosing strengths/risks, and recommending 2-3 concrete high-impact capital allocation actions. Format with clean markdown headers and bullet points.`,
+            config: {
+              systemInstruction:
+                "You are a Senior CFO & Quantitative Business Analyst. Respond with authoritative, actionable executive guidance based on the user's exact financial metrics.",
+            },
+          });
+          if (aiRes.text) {
+            replyContent = aiRes.text;
+          }
+        } catch (err: any) {
+          console.warn("Copilot Gemini fallback to deterministic CFO engine:", err?.message);
+        }
+      }
+
+      if (!replyContent) {
+        replyContent = generateDeterministicCopilotResponse(message, metricsSnapshot, historyRecords);
+      }
+
+      // Save assistant reply to SQLite
+      const assistantMsgId = "chat_ast_" + crypto.randomUUID();
+      const astTime = new Date().toISOString();
+      db.prepare(`
+        INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(assistantMsgId, user.id, "assistant", replyContent, JSON.stringify(metricsSnapshot), astTime);
+
+      logUserActivity(
+        user.id,
+        "AI_COPILOT_QUERY",
+        `Asked AI Analyst: "${message.slice(0, 45)}${message.length > 45 ? "..." : ""}"`
+      );
+
+      res.json({
+        userMessage: {
+          id: userMsgId,
+          role: "user",
+          content: message,
+          metricsSnapshot,
+          createdAt: now,
+        },
+        assistantMessage: {
+          id: assistantMsgId,
+          role: "assistant",
+          content: replyContent,
+          metricsSnapshot,
+          createdAt: astTime,
+        },
+      });
+    } catch (err: any) {
+      console.error("Copilot ask error:", err);
+      res.status(500).json({ error: "Failed to generate copilot response." });
+    }
+  });
+
+  app.delete("/api/copilot/messages", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      db.prepare("DELETE FROM chat_messages WHERE user_id = ?").run(user.id);
+
+      const historyRecords = db
+        .prepare("SELECT * FROM timeseries_records WHERE user_id = ? ORDER BY period ASC")
+        .all(user.id) as any[];
+      const latest = historyRecords.length > 0 ? historyRecords[historyRecords.length - 1] : null;
+      const rev = latest?.revenue || 99200;
+      const exp = latest?.expenses || 56200;
+      const margin = rev > 0 ? Number((((rev - exp) / rev) * 100).toFixed(1)) : 43.3;
+      const churn = latest?.churn_rate || 1.5;
+
+      const freshSnapshot = {
+        revenue: rev,
+        expenses: exp,
+        margin,
+        churn,
+        customers: latest?.customers || 2450,
+      };
+
+      const initId = "chat_init_" + crypto.randomUUID();
+      const now = new Date().toISOString();
+      const welcomeText = `Hello ${user.name || "Alex"}! Conversation history has been reset. Telemetry is synced: revenue is $${rev.toLocaleString()}/mo at ${margin}% operating margin with ${churn}% churn. How can I assist with your capital allocation, sensitivity models, or runway forecasts today?`;
+
+      db.prepare(`
+        INSERT INTO chat_messages (id, user_id, role, content, metrics_snapshot_json, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(initId, user.id, "assistant", welcomeText, JSON.stringify(freshSnapshot), now);
+
+      logUserActivity(user.id, "AI_COPILOT_RESET", "Reset AI Financial Copilot conversation thread.");
+
+      res.json({
+        success: true,
+        message: "Conversation history cleared.",
+        initialMessage: {
+          id: initId,
+          role: "assistant",
+          content: welcomeText,
+          metricsSnapshot: freshSnapshot,
+          createdAt: now,
+        },
+      });
+    } catch (err: any) {
+      console.error("Copilot reset error:", err);
+      res.status(500).json({ error: "Failed to reset copilot conversation." });
+    }
+  });
+
+  // ==========================================
+  // Notifications & Activity Audit Log Routes
+  // ==========================================
+  app.get("/api/notifications", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const notifs = db
+        .prepare(
+          "SELECT id, title, text, type, is_read as isRead, created_at as createdAt FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT 50"
+        )
+        .all(user.id) as any[];
+
+      const unreadRow = db
+        .prepare("SELECT COUNT(*) as count FROM notifications WHERE user_id = ? AND is_read = 0")
+        .get(user.id) as any;
+
+      const auditLogs = db
+        .prepare(
+          "SELECT id, action, details, created_at as createdAt FROM audit_logs WHERE user_id = ? ORDER BY created_at DESC LIMIT 25"
+        )
+        .all(user.id) as any[];
+
+      res.json({
+        notifications: notifs.map((n) => ({ ...n, isRead: Boolean(n.isRead) })),
+        unreadCount: unreadRow ? unreadRow.count : 0,
+        auditLogs,
+      });
+    } catch (err: any) {
+      console.error("Notifications fetch error:", err);
+      res.status(500).json({ error: "Failed to load notifications." });
+    }
+  });
+
+  app.post("/api/notifications/mark-read", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const { id } = req.body || {};
+
+      if (id && id !== "all") {
+        db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ? AND id = ?").run(user.id, id);
+      } else {
+        db.prepare("UPDATE notifications SET is_read = 1 WHERE user_id = ?").run(user.id);
+      }
+
+      res.json({ success: true });
+    } catch (err: any) {
+      res.status(500).json({ error: "Failed to mark notifications as read." });
     }
   });
 

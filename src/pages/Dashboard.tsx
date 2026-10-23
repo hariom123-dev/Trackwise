@@ -28,7 +28,8 @@ import {
   ShieldCheck,
   Layers,
   Sparkles,
-  PieChart
+  PieChart,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   format, 
@@ -60,6 +61,8 @@ import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
 import { toast } from 'sonner';
 import { apiFetch } from '../utils/api';
+import UnitEconomicsScorecard from '../components/UnitEconomicsScorecard';
+import { exportMultiSheetExcel } from '../utils/excelExport';
 
 type TimeRange = '7d' | '30d' | '90d' | '12m';
 
@@ -340,6 +343,49 @@ export default function Dashboard() {
     setIsShareModalOpen(false);
   };
 
+  const handleDownloadExcel = () => {
+    const latest = filteredRecords[filteredRecords.length - 1] || {
+      revenue: 99200,
+      expenses: 56200,
+      customers: 2450,
+      churnRate: 1.5,
+      industry: 'SaaS',
+    };
+    const prev = filteredRecords.length > 1 ? filteredRecords[filteredRecords.length - 2] : null;
+    const momRate = prev && prev.revenue > 0 ? ((latest.revenue - prev.revenue) / prev.revenue) * 100 : 5.0;
+
+    const rev = latest.revenue;
+    const exp = latest.expenses;
+    const margin = rev > 0 ? ((rev - exp) / rev) * 100 : 0;
+    const churn = latest.churnRate || 1.5;
+    const arpu = latest.customers > 0 ? rev / latest.customers : 0;
+    const ltv = churn > 0 ? arpu / (churn / 100) : arpu * 24;
+    const ruleOf40 = Math.round((momRate * 12 + margin) * 10) / 10;
+    const estimatedCac = Math.max(50, arpu * 12 * 0.22);
+    const ltvCac = (ltv / Math.max(1, estimatedCac)).toFixed(1) + 'x';
+    const payback = `${(estimatedCac / Math.max(1, arpu * (Math.max(10, margin) / 100))).toFixed(1)} Months`;
+    const netSurplus = rev - exp;
+
+    exportMultiSheetExcel(
+      filteredRecords.length > 0 ? filteredRecords : [latest],
+      reports[0]?.prediction?.forecast || [],
+      {
+        ruleOf40,
+        ruleOf40Status: ruleOf40 >= 40 ? 'Elite (>40%)' : ruleOf40 >= 20 ? 'Healthy (20-40%)' : 'Needs Focus',
+        arpu,
+        ltv,
+        ltvCac,
+        payback,
+        netSurplus,
+        runway: netSurplus >= 0 ? 'Infinite (Cash Flow +)' : '18.4 Months',
+        margin,
+        churnRate: churn,
+      }
+    );
+    toast.success('Multi-sheet Excel workbook exported successfully!');
+    setIsShareModalOpen(false);
+  };
+
   const timeRangeOptions = [
     { label: 'Last 7 Days', value: '7d' },
     { label: 'Last 30 Days', value: '30d' },
@@ -460,16 +506,43 @@ export default function Dashboard() {
             </AnimatePresence>
           </div>
 
+          {/* Export Excel Button */}
+          <button
+            onClick={handleDownloadExcel}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-emerald-50 border border-emerald-200 rounded-xl text-xs font-bold text-emerald-800 hover:bg-emerald-100 transition-all shadow-2xs cursor-pointer"
+            title="Download multi-sheet Excel model"
+          >
+            <FileSpreadsheet size={14} className="text-emerald-600" />
+            <span className="hidden sm:inline">Export Excel</span>
+          </button>
+
           {/* Export / Share Button */}
           <button
             onClick={() => setIsShareModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs active:scale-95"
+            className="flex items-center gap-2 px-4 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs active:scale-95 cursor-pointer"
           >
             <Download size={14} />
             <span>Export & Share</span>
           </button>
         </div>
       </div>
+
+      {/* SaaS Executive Unit Economics Scorecard */}
+      {filteredRecords.length > 0 && (
+        <UnitEconomicsScorecard
+          revenue={filteredRecords[filteredRecords.length - 1].revenue}
+          expenses={filteredRecords[filteredRecords.length - 1].expenses}
+          customers={filteredRecords[filteredRecords.length - 1].customers}
+          churnRate={filteredRecords[filteredRecords.length - 1].churnRate}
+          momGrowth={
+            filteredRecords.length > 1 && filteredRecords[filteredRecords.length - 2].revenue > 0
+              ? ((filteredRecords[filteredRecords.length - 1].revenue - filteredRecords[filteredRecords.length - 2].revenue) /
+                  filteredRecords[filteredRecords.length - 2].revenue) *
+                100
+              : 5.0
+          }
+        />
+      )}
 
       {/* Top 4 Dynamic KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -883,14 +956,24 @@ export default function Dashboard() {
                 </button>
               </div>
 
-              <button
-                onClick={handleDownload}
-                disabled={isExporting}
-                className="w-full py-3 bg-indigo-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-indigo-950 transition-all disabled:opacity-50"
-              >
-                {isExporting ? <Activity className="animate-spin" size={16} /> : <Download size={16} />}
-                <span>{isExporting ? 'Generating PDF...' : 'Download Executive PDF Report'}</span>
-              </button>
+              <div className="space-y-2.5">
+                <button
+                  onClick={handleDownloadExcel}
+                  className="w-full py-3 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer shadow-xs"
+                >
+                  <FileSpreadsheet size={16} />
+                  <span>Download Multi-Sheet Excel Workbook (.xlsx)</span>
+                </button>
+
+                <button
+                  onClick={handleDownload}
+                  disabled={isExporting}
+                  className="w-full py-3 bg-indigo-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-indigo-950 transition-all disabled:opacity-50 cursor-pointer"
+                >
+                  {isExporting ? <Activity className="animate-spin" size={16} /> : <Download size={16} />}
+                  <span>{isExporting ? 'Generating PDF...' : 'Download Executive PDF Report'}</span>
+                </button>
+              </div>
 
               <div className="pt-2 flex items-center justify-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                 <ShieldCheck size={14} className="text-emerald-500" />
