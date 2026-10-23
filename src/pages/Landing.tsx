@@ -458,17 +458,20 @@ export default function Landing() {
             <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-2xs flex flex-col justify-between hover:border-slate-300 transition-all">
               <div>
                 <span className="text-xs font-bold text-slate-400 uppercase tracking-widest block mb-2">Professional</span>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-slate-900">{isAnnual ? '$99' : '$129'}</span>
+                <div className="flex items-baseline gap-1 mb-1">
+                  <span className="text-4xl font-extrabold text-slate-900">{isAnnual ? '₹8,250' : '₹9,900'}</span>
                   <span className="text-slate-500 text-xs font-medium">/ month</span>
                 </div>
+                <p className="text-[11px] text-slate-400 font-medium mb-6">
+                  {isAnnual ? 'Billed annually (₹99,000/yr • ~$99/mo)' : 'Billed monthly (₹9,900/mo • ~$119/mo)'}
+                </p>
                 <ul className="space-y-3 mb-8">
                   {[
-                    "Up to 10M Data Rows",
-                    "ML Trend & Churn Analysis",
-                    "Custom PDF Report Export",
-                    "Standard API Access (10k calls/mo)",
-                    "Email & Chat Support"
+                    "Up to 10M Historical Data Rows",
+                    "ML Trend & Churn Forecasts",
+                    "Custom Executive PDF Strategy Exports",
+                    "Developer API Access (10k calls/mo)",
+                    "Email & Dedicated Analyst Support"
                   ].map((feat, i) => (
                     <li key={i} className="flex items-center gap-2.5 text-xs text-slate-600 font-medium">
                       <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
@@ -492,18 +495,21 @@ export default function Landing() {
               </div>
               <div>
                 <span className="text-xs font-bold text-indigo-300 uppercase tracking-widest block mb-2">Enterprise</span>
-                <div className="flex items-baseline gap-1 mb-6">
-                  <span className="text-4xl font-extrabold text-white">{isAnnual ? '$225' : '$299'}</span>
+                <div className="flex items-baseline gap-1 mb-1">
+                  <span className="text-4xl font-extrabold text-white">{isAnnual ? '₹18,750' : '₹24,900'}</span>
                   <span className="text-slate-400 text-xs font-medium">/ month</span>
                 </div>
+                <p className="text-[11px] text-slate-400 font-medium mb-6">
+                  {isAnnual ? 'Billed annually (₹225,000/yr • ~$225/mo)' : 'Billed monthly (₹24,900/mo • ~$299/mo)'}
+                </p>
                 <ul className="space-y-3 mb-8">
                   {[
-                    "Unlimited Data Row Processing",
-                    "Real-Time ML Forecasting Engine",
+                    "Unlimited Multi-Row Data Ingestion",
+                    "Real-Time Predictive Forecast Engine",
                     "White-Label Executive Dashboards",
                     "Dedicated Senior Analyst Support",
                     "SSO & SOC2 Enterprise Compliance",
-                    "24/7 Priority SLA"
+                    "24/7 Priority Phone & Slack SLA"
                   ].map((feat, i) => (
                     <li key={i} className="flex items-center gap-2.5 text-xs text-slate-200 font-medium">
                       <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />

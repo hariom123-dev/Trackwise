@@ -1,27 +1,106 @@
-import React, { useState } from 'react';
-import { Database, BrainCircuit, Loader2, TrendingUp, AlertTriangle, CheckCircle2, ArrowRight, BarChart3, PieChart, Activity, Lightbulb, FileText, UploadCloud, Sparkles, Clock, RefreshCw } from 'lucide-react';
-import { generateBusinessPredictions, BusinessData, PredictionResult } from '../services/gemini';
-import { saveAnalysisToHistory } from '../services/history';
+import React, { useState, useEffect } from 'react';
+import { 
+  Database, 
+  BrainCircuit, 
+  Loader2, 
+  TrendingUp, 
+  AlertTriangle, 
+  CheckCircle2, 
+  ArrowRight, 
+  BarChart3, 
+  FileText, 
+  UploadCloud, 
+  Sparkles, 
+  Clock, 
+  RefreshCw,
+  Download,
+  Table,
+  Check,
+  Calendar
+} from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { motion } from 'motion/react';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
+import { toast } from 'sonner';
+import { apiFetch } from '../utils/api';
+
+export interface BusinessData {
+  revenue: number;
+  expenses: number;
+  customers: number;
+  churnRate: number;
+  industry: string;
+  goals: string;
+}
+
+export interface ParsedRow {
+  period: string;
+  revenue: number;
+  expenses: number;
+  customers: number;
+  churnRate: number;
+  industry?: string;
+  goals?: string;
+}
+
+export interface PredictionResult {
+  summary: string;
+  forecast: {
+    month: string;
+    revenue: number;
+  }[];
+  recommendations: string[];
+  riskLevel: 'Low' | 'Medium' | 'High';
+  efficiencyScore: number;
+}
 
 export default function Data() {
   const [loading, setLoading] = useState(false);
   const [fileLoading, setFileLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [prediction, setPrediction] = useState<PredictionResult | null>(null);
-  const [lastSubmittedData, setLastSubmittedData] = useState<string>('');
+  const [existingRecords, setExistingRecords] = useState<any[]>([]);
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([]);
+  const [savingRows, setSavingRows] = useState(false);
+
   const [formData, setFormData] = useState<BusinessData>({
-    revenue: 50000,
-    expenses: 35000,
-    customers: 1200,
-    churnRate: 2.5,
+    revenue: 99200,
+    expenses: 56200,
+    customers: 2450,
+    churnRate: 1.5,
     industry: 'SaaS',
-    goals: 'Scale to $100k MRR by end of year'
+    goals: 'Scale to $150k MRR and establish European enterprise presence',
   });
+
+  // Load existing records from SQLite on component mount
+  useEffect(() => {
+    loadExistingRecords();
+  }, []);
+
+  const loadExistingRecords = async () => {
+    try {
+      const res = await apiFetch<{ records: any[]; reports: any[] }>('/api/data/timeseries');
+      if (res?.records && res.records.length > 0) {
+        setExistingRecords(res.records);
+        const latest = res.records[res.records.length - 1];
+        setFormData((prev) => ({
+          ...prev,
+          revenue: latest.revenue || prev.revenue,
+          expenses: latest.expenses || prev.expenses,
+          customers: latest.customers || prev.customers,
+          churnRate: latest.churnRate !== undefined ? latest.churnRate : prev.churnRate,
+          industry: latest.industry || prev.industry,
+        }));
+      }
+      if (res?.reports && res.reports.length > 0 && !prediction) {
+        setPrediction(res.reports[0].prediction);
+      }
+    } catch (e) {
+      console.warn('Could not fetch existing time-series records:', e);
+    }
+  };
 
   const loadSampleData = () => {
     setFormData({
@@ -30,88 +109,209 @@ export default function Data() {
       customers: 4500,
       churnRate: 1.8,
       industry: 'Fintech',
-      goals: 'Expand to European market and achieve 25% YoY growth'
+      goals: 'Expand to European market and achieve 25% YoY growth',
     });
+    toast.info('Sample business matrix loaded.');
   };
 
+  // Download a pre-formatted valid 6-month CSV template
+  const handleDownloadTemplate = () => {
+    const csvContent =
+      'period,revenue,expenses,customers,churnRate,industry,goals\n' +
+      '2025-11,72500,45800,1640,1.9,SaaS,Scale MRR to $150k\n' +
+      '2025-12,79000,48000,1800,1.9,SaaS,Scale MRR to $150k\n' +
+      '2026-01,84500,50500,1980,1.8,SaaS,Scale MRR to $150k\n' +
+      '2026-02,89000,52000,2120,1.7,SaaS,Scale MRR to $150k\n' +
+      '2026-03,94500,54500,2290,1.6,SaaS,Scale MRR to $150k\n' +
+      '2026-04,99200,56200,2450,1.5,SaaS,Scale MRR to $150k\n';
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', 'trackwise_timeseries_template.csv');
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    toast.success('Downloaded sample CSV template.');
+  };
+
+  // Multi-row file upload using readAsArrayBuffer
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setFileLoading(true);
     const reader = new FileReader();
+
     reader.onload = (evt) => {
       try {
-        const bstr = evt.target?.result;
-        const wb = XLSX.read(bstr, { type: 'binary' });
+        const buffer = evt.target?.result as ArrayBuffer;
+        if (!buffer) throw new Error('File buffer is empty');
+
+        const wb = XLSX.read(buffer, { type: 'array' });
         const wsname = wb.SheetNames[0];
         const ws = wb.Sheets[wsname];
         const data = XLSX.utils.sheet_to_json(ws) as any[];
 
-        if (data.length > 0) {
-          const firstRow = data[0];
-          // Try to map common field names
-          const mappedData: Partial<BusinessData> = {};
-          
-          const findKey = (searchTerms: string[]) => {
-            return Object.keys(firstRow).find(key => 
-              searchTerms.some(term => key.toLowerCase().includes(term.toLowerCase()))
-            );
+        if (!data || data.length === 0) {
+          toast.error('The selected file contains no readable rows.');
+          setFileLoading(false);
+          return;
+        }
+
+        const findKey = (row: any, searchTerms: string[]) => {
+          return Object.keys(row).find((key) =>
+            searchTerms.some((term) => key.toLowerCase().trim().includes(term.toLowerCase()))
+          );
+        };
+
+        const extractedRows: ParsedRow[] = [];
+
+        data.forEach((row, idx) => {
+          const periodKey = findKey(row, ['period', 'month', 'date', 'quarter', 'time']);
+          const revenueKey = findKey(row, ['revenue', 'income', 'sales', 'turnover', 'mrr']);
+          const expensesKey = findKey(row, ['expense', 'cost', 'spend', 'spending', 'outgoings', 'cogs']);
+          const customersKey = findKey(row, ['customer', 'user', 'client', 'subscriber', 'accounts']);
+          const churnKey = findKey(row, ['churn', 'retention', 'attrition']);
+          const industryKey = findKey(row, ['industry', 'sector', 'vertical', 'business']);
+          const goalsKey = findKey(row, ['goal', 'target', 'objective']);
+
+          // Parse numbers safely allowing 0
+          const parseNum = (val: any, fallback = 0) => {
+            if (val === undefined || val === null || val === '') return fallback;
+            const parsed = parseFloat(val);
+            return isNaN(parsed) ? fallback : parsed;
           };
 
-          const revenueKey = findKey(['revenue', 'income', 'sales', 'turnover']);
-          const expensesKey = findKey(['expense', 'cost', 'spending', 'outgoings']);
-          const customersKey = findKey(['customer', 'user', 'client', 'subscriber']);
-          const churnKey = findKey(['churn', 'retention', 'attrition']);
-          const industryKey = findKey(['industry', 'sector', 'business type']);
-          const goalsKey = findKey(['goal', 'target', 'objective']);
+          const parsePeriod = (val: any, index: number) => {
+            if (val) return String(val).trim();
+            const d = new Date();
+            d.setMonth(d.getMonth() - (data.length - 1 - index));
+            return d.toISOString().slice(0, 7);
+          };
 
-          if (revenueKey) mappedData.revenue = parseFloat(firstRow[revenueKey]);
-          if (expensesKey) mappedData.expenses = parseFloat(firstRow[expensesKey]);
-          if (customersKey) mappedData.customers = parseInt(firstRow[customersKey]);
-          if (churnKey) mappedData.churnRate = parseFloat(firstRow[churnKey]);
-          if (industryKey) mappedData.industry = String(firstRow[industryKey]);
-          if (goalsKey) mappedData.goals = String(firstRow[goalsKey]);
+          const rev = revenueKey ? parseNum(row[revenueKey]) : 0;
+          const exp = expensesKey ? parseNum(row[expensesKey]) : 0;
+          const cust = customersKey ? Math.round(parseNum(row[customersKey])) : 0;
+          const churn = churnKey ? parseNum(row[churnKey]) : 0;
+          const ind = industryKey ? String(row[industryKey]).trim() : undefined;
+          const goal = goalsKey ? String(row[goalsKey]).trim() : undefined;
 
-          setFormData(prev => ({ ...prev, ...mappedData }));
-          alert('Successfully imported data from ' + file.name);
+          extractedRows.push({
+            period: parsePeriod(periodKey ? row[periodKey] : null, idx),
+            revenue: Math.max(0, rev),
+            expenses: Math.max(0, exp),
+            customers: Math.max(0, cust),
+            churnRate: Math.max(0, Math.min(100, churn)),
+            industry: ind,
+            goals: goal,
+          });
+        });
+
+        if (extractedRows.length > 0) {
+          setParsedRows(extractedRows);
+
+          // Populate form data with the latest row metrics
+          const last = extractedRows[extractedRows.length - 1];
+          setFormData((prev) => ({
+            ...prev,
+            revenue: last.revenue || prev.revenue,
+            expenses: last.expenses || prev.expenses,
+            customers: last.customers || prev.customers,
+            churnRate: last.churnRate !== undefined ? last.churnRate : prev.churnRate,
+            industry: last.industry || prev.industry,
+            goals: last.goals || prev.goals,
+          }));
+
+          toast.success(`Successfully parsed ${extractedRows.length} time-series records from ${file.name}!`);
         }
-      } catch (error) {
-        console.error("File parsing error:", error);
-        alert('Error parsing file. Please ensure it is a valid Excel or CSV file.');
+      } catch (err: any) {
+        console.error('File parsing error:', err);
+        toast.error('Error parsing spreadsheet. Please check format or use the CSV template.');
       } finally {
         setFileLoading(false);
       }
     };
-    reader.readAsBinaryString(file);
+
+    reader.readAsArrayBuffer(file);
   };
 
+  // Commit parsed multi-row data to SQLite backend
+  const handleCommitParsedRows = async () => {
+    if (parsedRows.length === 0) return;
+    setSavingRows(true);
+
+    try {
+      const res = await apiFetch<{ success: boolean; count: number; records: any[] }>(
+        '/api/data/timeseries/bulk',
+        {
+          method: 'POST',
+          body: JSON.stringify({
+            rows: parsedRows.map((r) => ({
+              period: r.period,
+              revenue: r.revenue,
+              expenses: r.expenses,
+              customers: r.customers,
+              churnRate: r.churnRate,
+              industry: r.industry || formData.industry,
+            })),
+          }),
+        }
+      );
+
+      if (res?.success) {
+        toast.success(`Successfully saved ${res.count} time-series rows to the database!`);
+        setExistingRecords(res.records || []);
+        // Trigger prediction with newly saved dataset
+        handleSubmit();
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save dataset.');
+    } finally {
+      setSavingRows(false);
+    }
+  };
+
+  // Run AI & Deterministic Prediction Engine
   const handleSubmit = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
-    
-    // Check if data has changed to save quota
-    const currentDataStr = JSON.stringify(formData);
-    if (currentDataStr === lastSubmittedData && prediction && !error) {
-      return; 
-    }
 
     setLoading(true);
     setError(null);
+
     try {
-      const result = await generateBusinessPredictions(formData);
-      setPrediction(result);
-      setLastSubmittedData(currentDataStr);
-      saveAnalysisToHistory(formData, result);
-    } catch (err: any) {
-      console.error("Prediction failed:", err);
-      let message = err.message || "The AI engine encountered an issue. Please check your connection and try again.";
-      
-      // Handle the specific quota error
-      if (message.includes("quota") || message.includes("exhausted") || message.includes("429")) {
-        message = "The AI Engine is currently processing high volume. Please give it a moment to refresh—this usually takes about 60 seconds on our standard tier.";
+      const payload = {
+        revenue: Number(formData.revenue),
+        expenses: Number(formData.expenses),
+        customers: Number(formData.customers),
+        churnRate: Number(formData.churnRate),
+        industry: formData.industry,
+        goals: formData.goals,
+        historyRows: existingRecords.length > 0 ? existingRecords : parsedRows,
+      };
+
+      const result = await apiFetch<any>('/api/gemini/predict', {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      });
+
+      if (result?.prediction) {
+        setPrediction(result.prediction);
+      } else if (result?.forecast) {
+        setPrediction(result);
       }
-      
+
+      toast.success('Predictive intelligence report generated successfully!');
+    } catch (err: any) {
+      console.error('Prediction failed:', err);
+      let message = err.message || 'The AI forecasting engine encountered an issue.';
+      if (message.includes('quota') || message.includes('429')) {
+        message = 'AI rate limit reached. Re-engaging with high-precision deterministic forecasting.';
+      }
       setError(message);
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -119,9 +319,9 @@ export default function Data() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
+    setFormData((prev) => ({
       ...prev,
-      [name]: name === 'industry' || name === 'goals' ? value : (value === '' ? 0 : parseFloat(value))
+      [name]: name === 'industry' || name === 'goals' ? value : value === '' ? 0 : parseFloat(value),
     }));
   };
 
@@ -129,70 +329,179 @@ export default function Data() {
     const element = document.getElementById('prediction-report');
     if (!element) return;
 
-    const canvas = await html2canvas(element, {
-      scale: 2,
-      useCORS: true,
-      logging: false,
-      backgroundColor: '#f6fafe'
-    });
-    
-    const imgData = canvas.toDataURL('image/png');
-    const pdf = new jsPDF('p', 'mm', 'a4');
-    const imgProps = pdf.getImageProperties(imgData);
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-    
-    pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-    pdf.save(`TrackWise-Analysis-${new Date().toISOString().split('T')[0]}.pdf`);
+    try {
+      const canvas = await html2canvas(element, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+        backgroundColor: '#f6fafe',
+      });
+
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const imgProps = pdf.getImageProperties(imgData);
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
+
+      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
+      pdf.save(`TrackWise-Analysis-${new Date().toISOString().split('T')[0]}.pdf`);
+      toast.success('Analysis report exported as PDF.');
+    } catch (err) {
+      toast.error('Failed to generate PDF.');
+    }
   };
 
   return (
     <div className="space-y-8">
-      <div className="flex flex-col md:items-center justify-between gap-4 md:flex-row">
+      {/* Page Title & Actions */}
+      <div className="flex flex-col md:items-center justify-between gap-4 md:flex-row pb-2 border-b border-slate-200/60">
         <div>
-          <h1 className="text-3xl font-extrabold text-indigo-900 tracking-tight">Data Engine</h1>
-          <p className="font-medium text-slate-500">Input your business metrics for deep-learning analysis.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2.5 py-0.5 rounded-full">
+              Data Lab Engine
+            </span>
+            <span className="text-xs text-slate-400">•</span>
+            <span className="text-xs font-semibold text-slate-500">
+              {existingRecords.length} Historical Records Loaded
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            Financial Ingestion & Neural Forecasting
+          </h1>
+          <p className="font-medium text-slate-500 text-xs sm:text-sm">
+            Ingest multi-period spreadsheets or adjust unit parameters for deterministic and AI predictions.
+          </p>
         </div>
-        <div className="flex items-center gap-3">
-          <label className="flex items-center gap-2 px-4 py-2 bg-indigo-900 border border-indigo-900 rounded-xl text-sm font-bold text-white hover:bg-indigo-800 transition-colors cursor-pointer">
-            {fileLoading ? (
-              <Loader2 size={16} className="animate-spin" />
-            ) : (
-              <UploadCloud size={16} />
-            )}
-            Import Sheet
-            <input 
-              type="file" 
-              className="hidden" 
-              accept=".xlsx,.xls,.csv" 
+
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleDownloadTemplate}
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            title="Download formatted sample CSV template"
+          >
+            <Download size={14} className="text-indigo-600" />
+            <span>Sample CSV</span>
+          </button>
+
+          <label className="flex items-center gap-1.5 px-4 py-2 bg-indigo-900 border border-indigo-900 rounded-xl text-xs font-bold text-white hover:bg-indigo-950 transition-colors cursor-pointer shadow-xs active:scale-95">
+            {fileLoading ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
+            <span>{fileLoading ? 'Parsing...' : 'Upload CSV / Excel'}</span>
+            <input
+              type="file"
+              className="hidden"
+              accept=".xlsx,.xls,.csv"
               onChange={handleFileUpload}
               disabled={fileLoading}
             />
           </label>
-          <button 
+
+          <button
+            type="button"
             onClick={handleExportPDF}
-            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
           >
-            <FileText size={16} />
-            Export PDF
+            <FileText size={14} />
+            <span>Export PDF</span>
           </button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-        {/* Input Form */}
-        <div className="bg-white p-8 rounded-[2rem] border border-slate-100 shadow-sm h-fit">
-          <div className="flex items-center justify-between mb-8">
-            <div className="flex items-center gap-3">
-              <div className="p-2 rounded-lg bg-indigo-50 text-indigo-600">
-                <Database size={20} />
+      {/* Parsed Dataset Preview Table */}
+      {parsedRows.length > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-white p-5 rounded-2xl border border-indigo-200 shadow-xs space-y-4"
+        >
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-700">
+                <Table size={18} />
               </div>
-              <h2 className="text-xl font-bold text-indigo-900">Business Data Matrix</h2>
+              <div>
+                <h3 className="text-sm font-bold text-slate-900">Parsed Time-Series Dataset Preview</h3>
+                <p className="text-[11px] text-slate-500 font-medium">
+                  {parsedRows.length} rows extracted. Verify columns below before committing to the database.
+                </p>
+              </div>
             </div>
-            <button 
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setParsedRows([])}
+                className="px-3 py-1.5 text-xs font-semibold text-slate-500 hover:text-slate-800"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={handleCommitParsedRows}
+                disabled={savingRows}
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs transition-all active:scale-95 disabled:opacity-50"
+              >
+                {savingRows ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />}
+                <span>{savingRows ? 'Ingesting...' : 'Commit to Database & Forecast'}</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="overflow-x-auto rounded-xl border border-slate-100">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-slate-50 text-slate-500 font-bold uppercase tracking-wider text-[10px] border-b border-slate-100">
+                <tr>
+                  <th className="py-2.5 px-3">Period</th>
+                  <th className="py-2.5 px-3">Monthly Revenue</th>
+                  <th className="py-2.5 px-3">Monthly Expenses</th>
+                  <th className="py-2.5 px-3">Net Profit</th>
+                  <th className="py-2.5 px-3">Customers</th>
+                  <th className="py-2.5 px-3">Churn Rate</th>
+                  <th className="py-2.5 px-3">Industry</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100 font-medium">
+                {parsedRows.map((row, i) => (
+                  <tr key={i} className="hover:bg-indigo-50/40 transition-colors">
+                    <td className="py-2 px-3 font-bold text-slate-800 flex items-center gap-1.5">
+                      <Calendar size={12} className="text-indigo-500" />
+                      {row.period}
+                    </td>
+                    <td className="py-2 px-3 text-slate-900 font-semibold">${row.revenue.toLocaleString()}</td>
+                    <td className="py-2 px-3 text-slate-600">${row.expenses.toLocaleString()}</td>
+                    <td
+                      className={`py-2 px-3 font-bold ${
+                        row.revenue - row.expenses >= 0 ? 'text-emerald-600' : 'text-rose-600'
+                      }`}
+                    >
+                      ${(row.revenue - row.expenses).toLocaleString()}
+                    </td>
+                    <td className="py-2 px-3 text-slate-700">{row.customers.toLocaleString()}</td>
+                    <td className="py-2 px-3 text-slate-700">{row.churnRate.toFixed(1)}%</td>
+                    <td className="py-2 px-3 text-slate-500">{row.industry || formData.industry}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </motion.div>
+      )}
+
+      {/* Main Grid: Form Left, Results Right */}
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
+        {/* Input Form Card */}
+        <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-2xs h-fit">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2 rounded-xl bg-indigo-50 text-indigo-600">
+                <Database size={18} />
+              </div>
+              <h2 className="text-base font-bold text-slate-900">Telemetry Parameters</h2>
+            </div>
+            <button
               type="button"
               onClick={loadSampleData}
-              className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest hover:text-indigo-700 transition-colors"
+              className="text-[10px] font-bold text-indigo-600 uppercase tracking-widest hover:text-indigo-800 transition-colors"
             >
               Load Sample
             </button>
@@ -201,93 +510,114 @@ export default function Data() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Monthly Revenue ($)</label>
-                <input 
-                  type="number" 
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Monthly Revenue ($)
+                </label>
+                <input
+                  type="number"
                   name="revenue"
+                  min="0"
                   value={formData.revenue}
                   onChange={handleChange}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-none transition-all"
+                  required
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Monthly Expenses ($)</label>
-                <input 
-                  type="number" 
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Monthly Expenses ($)
+                </label>
+                <input
+                  type="number"
                   name="expenses"
+                  min="0"
                   value={formData.expenses}
                   onChange={handleChange}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-none transition-all"
+                  required
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Total Active Customers</label>
-                <input 
-                  type="number" 
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Active Customers
+                </label>
+                <input
+                  type="number"
                   name="customers"
+                  min="0"
                   value={formData.customers}
                   onChange={handleChange}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-none transition-all"
+                  required
                 />
               </div>
               <div className="space-y-1.5">
-                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Churn Rate (%)</label>
-                <input 
-                  type="number" 
+                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                  Churn Rate (%)
+                </label>
+                <input
+                  type="number"
                   step="0.1"
+                  min="0"
+                  max="100"
                   name="churnRate"
                   value={formData.churnRate}
                   onChange={handleChange}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-none transition-all"
+                  required
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Industry Vertical</label>
-              <select 
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Industry Vertical
+              </label>
+              <select
                 name="industry"
                 value={formData.industry}
                 onChange={handleChange}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-none transition-all"
               >
                 <option value="SaaS">SaaS / Enterprise Software</option>
-                <option value="E-commerce">E-commerce / Retail</option>
-                <option value="Fintech">Fintech / Financial Services</option>
+                <option value="E-commerce">E-commerce & Retail</option>
+                <option value="Fintech">Fintech & Financial Services</option>
                 <option value="Healthcare">Healthcare & BioTech</option>
                 <option value="Real Estate">Real Estate & PropTech</option>
               </select>
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Strategic Goals</label>
-              <textarea 
+              <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                Strategic Goals
+              </label>
+              <textarea
                 name="goals"
                 value={formData.goals}
                 onChange={handleChange}
                 rows={3}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-none transition-all resize-none"
-                placeholder="e.g., Scale to $100k MRR..."
+                placeholder="e.g., Scale to $150k MRR and establish European enterprise presence"
               />
             </div>
 
-            <button 
-              type="submit" 
+            <button
+              type="submit"
               disabled={loading}
-              className="w-full bg-indigo-900 text-white py-3 rounded-xl text-xs font-bold shadow-md shadow-indigo-900/15 flex items-center justify-center gap-2 hover:bg-indigo-950 active:scale-95 transition-all disabled:opacity-50"
+              className="w-full bg-indigo-900 text-white py-3 rounded-xl text-xs font-bold shadow-md shadow-indigo-900/15 flex items-center justify-center gap-2 hover:bg-indigo-950 active:scale-95 transition-all disabled:opacity-50 mt-2"
             >
               {loading ? (
                 <>
-                  <Loader2 className="animate-spin" size={16} />
-                  <span>Processing Neural Prediction...</span>
+                  <Loader2 className="animate-spin" size={15} />
+                  <span>Executing Dual Forecasting Engine...</span>
                 </>
               ) : (
                 <>
-                  <BrainCircuit size={16} />
-                  <span>Generate AI Prediction</span>
+                  <BrainCircuit size={15} />
+                  <span>Run Predictive Intelligence</span>
                 </>
               )}
             </button>
@@ -298,17 +628,18 @@ export default function Data() {
         <div id="prediction-report" className="lg:col-span-2 space-y-6">
           {error && (
             <div className="bg-white border border-slate-200/80 p-8 rounded-2xl text-center shadow-2xs">
-              <div className="w-14 h-14 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 mx-auto mb-4">
-                <Clock size={24} />
+              <div className="w-14 h-14 rounded-2xl bg-amber-50 flex items-center justify-center text-amber-600 mx-auto mb-4">
+                <AlertTriangle size={24} />
               </div>
-              <h3 className="text-xl font-extrabold text-slate-900 mb-2">Engine Optimization in Progress</h3>
+              <h3 className="text-lg font-extrabold text-slate-900 mb-2">Notice on Forecasting</h3>
               <p className="text-slate-500 text-xs mb-6 max-w-sm mx-auto leading-relaxed">{error}</p>
-              <button 
-                onClick={handleSubmit}
-                className="group flex items-center gap-2 mx-auto px-6 py-3 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs"
+              <button
+                type="button"
+                onClick={() => handleSubmit()}
+                className="flex items-center gap-2 mx-auto px-5 py-2.5 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs"
               >
-                <RefreshCw size={15} className="group-hover:rotate-180 transition-transform duration-500" />
-                <span>Retry Neural Engine</span>
+                <RefreshCw size={14} />
+                <span>Rerun Prediction</span>
               </button>
             </div>
           )}
@@ -318,19 +649,18 @@ export default function Data() {
               <div className="w-16 h-16 rounded-2xl bg-indigo-50 flex items-center justify-center text-indigo-600 mb-6 shadow-2xs">
                 <BrainCircuit size={32} />
               </div>
-              <h3 className="text-xl font-extrabold text-slate-900 mb-2">Intelligence Engine Standby</h3>
+              <h3 className="text-xl font-extrabold text-slate-900 mb-2">Predictive Intelligence Ready</h3>
               <p className="text-slate-500 text-xs max-w-md mb-6 leading-relaxed">
-                Connect your financial metrics to our machine learning model. TrackWise generates a 6-month revenue projection, volatility risk assessment, and strategic recommendations.
+                Connect your business metrics to calculate deterministic operating margins, compound runway, LTV,
+                and generate structured 6-month predictive revenue projections.
               </p>
-              <div className="flex flex-col sm:flex-row gap-3 w-full max-w-xs">
-                <button 
-                  onClick={handleSubmit}
-                  className="flex-1 py-3 bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-indigo-950 transition-all active:scale-95"
-                >
-                  Analyze Current Data
-                </button>
-              </div>
-              <p className="mt-6 text-[10px] font-bold text-slate-400 uppercase tracking-wider">Encrypted Neural Pipeline Active</p>
+              <button
+                type="button"
+                onClick={() => handleSubmit()}
+                className="px-6 py-3 bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs hover:bg-indigo-950 transition-all active:scale-95"
+              >
+                Analyze Current Telemetry
+              </button>
             </div>
           )}
 
@@ -338,39 +668,59 @@ export default function Data() {
             <div className="bg-white p-12 rounded-2xl border border-slate-200/80 shadow-2xs min-h-[420px] flex flex-col items-center justify-center text-center">
               <div className="relative mb-6">
                 <div className="w-20 h-20 rounded-full border-4 border-slate-100 border-t-indigo-600 animate-spin" />
-                <BrainCircuit className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-600" size={28} />
+                <BrainCircuit
+                  className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-indigo-600"
+                  size={28}
+                />
               </div>
               <h3 className="text-xl font-extrabold text-slate-900 mb-2">Processing Predictive Models</h3>
-              <p className="text-slate-500 text-xs max-w-md leading-relaxed">Evaluating industry benchmarks, revenue variance, and churn metrics through neural regression layers...</p>
+              <p className="text-slate-500 text-xs max-w-md leading-relaxed">
+                Computing deterministic financial mathematics (margins, burn rate, LTV) and synthesizing executive
+                strategic intelligence...
+              </p>
             </div>
           )}
 
           {prediction && !loading && (
             <div className="space-y-6">
-              {/* Summary Card */}
+              {/* Executive Assessment Card */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-2xs">
                 <div className="flex items-center justify-between mb-4">
-                  <h3 className="text-base font-bold text-slate-900">Analysis Summary</h3>
-                  <div className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
-                    prediction.riskLevel === 'Low' ? 'bg-emerald-50 text-emerald-700' :
-                    prediction.riskLevel === 'Medium' ? 'bg-amber-50 text-amber-700' :
-                    'bg-rose-50 text-rose-700'
-                  }`}>
+                  <div className="flex items-center gap-2">
+                    <Sparkles size={16} className="text-indigo-600" />
+                    <h3 className="text-sm font-bold text-slate-900">Executive Forecast Summary</h3>
+                  </div>
+                  <div
+                    className={`px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1.5 ${
+                      prediction.riskLevel === 'Low'
+                        ? 'bg-emerald-50 text-emerald-700'
+                        : prediction.riskLevel === 'Medium'
+                        ? 'bg-amber-50 text-amber-700'
+                        : 'bg-rose-50 text-rose-700'
+                    }`}
+                  >
                     <AlertTriangle size={13} />
                     <span>{prediction.riskLevel} Risk Profile</span>
                   </div>
                 </div>
-                <p className="text-slate-700 leading-relaxed text-sm bg-slate-50/60 p-4 rounded-xl border border-slate-100 italic">{prediction.summary}</p>
+                <p className="text-slate-700 leading-relaxed text-xs sm:text-sm bg-slate-50/70 p-4 rounded-xl border border-slate-100 italic">
+                  "{prediction.summary}"
+                </p>
               </div>
 
-              {/* Chart Card */}
+              {/* 6-Month Projection Chart */}
               <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-2xs">
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2.5">
                     <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600">
                       <TrendingUp size={18} />
                     </div>
-                    <h3 className="text-base font-bold text-slate-900">6-Month Revenue Projection</h3>
+                    <div>
+                      <h3 className="text-sm font-bold text-slate-900">6-Month Compound Revenue Projection</h3>
+                      <p className="text-[11px] text-slate-400 font-medium">
+                        Model projection factoring MoM momentum and churn damping
+                      </p>
+                    </div>
                   </div>
                 </div>
                 <div className="h-[260px] w-full">
@@ -378,68 +728,76 @@ export default function Data() {
                     <AreaChart data={prediction.forecast}>
                       <defs>
                         <linearGradient id="colorRev" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15}/>
-                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0}/>
+                          <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.2} />
+                          <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
                         </linearGradient>
                       </defs>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                      <XAxis 
-                        dataKey="month" 
-                        axisLine={false} 
-                        tickLine={false} 
+                      <XAxis
+                        dataKey="month"
+                        axisLine={false}
+                        tickLine={false}
                         tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
                         dy={8}
                       />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
+                      <YAxis
+                        axisLine={false}
+                        tickLine={false}
                         tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
                         tickFormatter={(value) => `$${value / 1000}k`}
                       />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        formatter={(value: number) => [`$${value.toLocaleString()}`, 'Forecasted Revenue']}
+                      <Tooltip
+                        contentStyle={{
+                          borderRadius: '12px',
+                          border: '1px solid #e2e8f0',
+                          boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                        }}
+                        formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Projected Revenue']}
                       />
-                      <Area 
-                        type="monotone" 
-                        dataKey="revenue" 
-                        stroke="#4f46e5" 
+                      <Area
+                        type="monotone"
+                        dataKey="revenue"
+                        stroke="#4f46e5"
                         strokeWidth={2.5}
-                        fillOpacity={1} 
-                        fill="url(#colorRev)" 
+                        fillOpacity={1}
+                        fill="url(#colorRev)"
                       />
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
               </div>
 
-              {/* Recommendations */}
+              {/* Recommendations & Efficiency Index */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div className="bg-indigo-900 p-6 rounded-2xl text-white shadow-md shadow-indigo-900/15 flex flex-col justify-between">
                   <div>
-                    <h3 className="text-base font-bold mb-4 flex items-center gap-2">
-                      <Lightbulb className="text-amber-400" size={18} />
-                      Strategic Recommendations
+                    <h3 className="text-sm font-bold mb-4 flex items-center gap-2">
+                      <Sparkles className="text-amber-400" size={16} />
+                      Actionable Strategic Directives
                     </h3>
                     <div className="space-y-3">
                       {prediction.recommendations.map((rec, i) => (
-                        <div key={i} className="flex gap-3 group">
+                        <div key={i} className="flex gap-2.5">
                           <div className="mt-0.5 shrink-0">
-                            <CheckCircle2 size={16} className="text-emerald-400" />
+                            <CheckCircle2 size={15} className="text-emerald-400" />
                           </div>
                           <p className="text-xs text-indigo-100 leading-relaxed font-medium">{rec}</p>
                         </div>
                       ))}
                     </div>
                   </div>
-                  <button className="w-full mt-6 py-2.5 bg-white/10 hover:bg-white/15 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2">
-                    <span>Export Strategy Brief</span> <ArrowRight size={14} />
-                  </button>
+                  <div className="pt-4 mt-4 border-t border-indigo-800/80 flex items-center justify-between text-[11px] text-indigo-300">
+                    <span>Generated for {formData.industry} vertical</span>
+                    <span>High Confidence</span>
+                  </div>
                 </div>
 
                 <div className="bg-white p-6 rounded-2xl border border-slate-200/80 shadow-2xs flex flex-col justify-between">
                   <div>
-                    <h3 className="text-base font-bold text-slate-900 mb-4">Operational Efficiency Index</h3>
+                    <h3 className="text-sm font-bold text-slate-900 mb-2">Operational Efficiency Index</h3>
+                    <p className="text-[11px] text-slate-400 mb-4">
+                      Evaluated against industry benchmarks for operating margin and churn.
+                    </p>
                     <div className="flex items-center justify-center py-2">
                       <div className="relative">
                         <svg className="w-28 h-28 transform -rotate-90">
@@ -455,7 +813,7 @@ export default function Data() {
                           <motion.circle
                             initial={{ strokeDashoffset: 314 }}
                             animate={{ strokeDashoffset: 314 - (314 * prediction.efficiencyScore) / 100 }}
-                            transition={{ duration: 1.5, ease: "easeOut" }}
+                            transition={{ duration: 1.2, ease: 'easeOut' }}
                             cx="56"
                             cy="56"
                             r="50"
@@ -473,9 +831,13 @@ export default function Data() {
                       </div>
                     </div>
                   </div>
-                  <div className="text-center mt-2">
+                  <div className="text-center mt-2 pt-3 border-t border-slate-100">
                     <p className="text-xs font-bold text-slate-800">
-                      {prediction.efficiencyScore > 80 ? 'Exceptional Performance' : prediction.efficiencyScore > 50 ? 'Stable Performance' : 'Optimizing Required'}
+                      {prediction.efficiencyScore > 80
+                        ? 'Exceptional Performance'
+                        : prediction.efficiencyScore > 50
+                        ? 'Stable Performance'
+                        : 'Optimization Recommended'}
                     </p>
                     <p className="text-[10px] text-slate-400 font-medium mt-0.5">
                       Benchmarks relative to {formData.industry} vertical

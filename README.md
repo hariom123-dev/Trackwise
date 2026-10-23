@@ -1,49 +1,158 @@
-📊 Smart Business Analytics
-Smart Business Analytics is a full-stack web application designed to help businesses efficiently manage daily sales and inventory data while leveraging machine learning to generate actionable insights and growth predictions.
+# TrackWise: Enterprise Predictive Business Intelligence & Analytics SaaS
 
-🚀 Features 
+TrackWise is a production-ready, full-stack predictive business intelligence SaaS platform. It combines deterministic unit economics modeling, Google Gemini AI strategic recommendations, multi-period financial ingestion, interactive data visualizers, and secure Razorpay payment processing.
 
-📥 Data Management     
-Upload or manually enter daily sales and inventory data (CSV/Excel supported).
-               
-📊 Interactive Visualizations     
-Transform raw data into dynamic charts including:
-Sales trends (line graphs)
-Inventory levels (bar charts)
-Profit distribution (pie charts)
+---
 
-🤖 Machine Learning Insights
-Analyze historical data to provide:
-Sales forecasting
-Demand prediction
-Inventory optimization
-Smart business recommendations
+## 🚀 Key Features
 
-🔐 User Authentication 
-Secure login/signup system with personalized dashboards.
+### 1. 🗄️ Self-Contained SQLite Database (`better-sqlite3`)
+- Zero external database credentials required—runs seamlessly out of the box with local `trackwise.db`.
+- Full relational schema with foreign key constraints, indexes, and cascade deletion across:
+  - `users`: User profiles, bcrypt password hashes, active subscription plans, 2FA, and preferences.
+  - `timeseries_records`: Multi-period financial metrics (revenue, expenses, customers, churn rate, industry).
+  - `analysis_reports`: Historical strategic forecasting reports with full prediction JSON and telemetry inputs.
+  - `insights`: Market intelligence signals, like counts, bookmark flags, and action checklists.
+  - `payments`: Razorpay and simulated payment transaction audit logs.
+- Pre-seeded with **12 months of realistic time-series records**, **2 strategic AI analysis reports**, and **4 market intelligence signals** for the default demo account.
 
-💳 Subscription System
-Monthly and yearly plans with payment integration (Stripe/Razorpay), including:
-Feature-based access control
-Billing history
-Subscription management
+### 2. 🔐 JWT Authentication & Authorization
+- Secure JWT-based authentication using HTTP `Bearer` tokens.
+- Passwords salted and hashed with `bcryptjs` (salt rounds = 10).
+- React `AuthContext` with automatic Bearer token injection on API requests and automatic session expiry handling.
+- Protected route wrappers guarding `/dashboard`, `/data`, `/insights`, `/subscription`, and `/settings`.
+- Instant 1-click **"Fill Demo Credentials"** button on `/login` (`alex@kinetic.com` / `Password123!`).
 
-📈 Business Intelligence Dashboard
-Clean, responsive UI for real-time insights and decision-making.
+### 3. 🧠 Resilient Dual-Engine Forecasting (Deterministic Math + Gemini AI)
+- **Deterministic Math First**: Every forecast computes operating margins, net burn rate, ARPU, customer lifetime value (LTV), and MoM compound trajectory directly in TypeScript.
+- **Gemini Structured Intelligence**: Prompts Google Gemini with computed parameters using structured JSON schemas to deliver executive assessments and risk scoring.
+- **Graceful Fallback Mode**: If `GEMINI_API_KEY` is missing or rate limits are reached, the platform seamlessly falls back to the deterministic projection engine without disrupting user experience or raising 500 errors.
 
-🛠️ Tech Stack     
-Frontend: React.js, Tailwind CSS
-Backend: Node.js / Django
-Database: MongoDB / PostgreSQL
-Machine Learning: Python (Pandas, Scikit-learn, TensorFlow)
-Payments: Stripe / Razorpay
-APIs: RESTful architecture
+### 4. 💳 Resilient Razorpay Payments & HMAC Verification
+- Real HMAC SHA256 signature verification (`crypto.createHmac('sha256', secret)`) for production orders.
+- Simulated checkout mode enabled when Razorpay keys are omitted in development, allowing full end-to-end testing of tier upgrades.
+- Real-time plan status badge in the sidebar and tier management UI.
 
-🎯 Purpose
-This project aims to simplify business analytics by combining data visualization and machine learning into one unified platform, enabling businesses to make data-driven decisions and improve operational efficiency.
+### 5. 📥 Multi-Row Spreadsheet Ingestion (`SheetJS`)
+- Ingests entire multi-row CSV/Excel sheets using modern `readAsArrayBuffer` + `XLSX.read(buffer, { type: 'array' })`.
+- Flexible header mapping supporting common financial terms (`revenue`, `sales`, `cogs`, `expenses`, `churn`, `customers`).
+- Interactive **Parsed Dataset Preview Table** to inspect and verify rows before database commit.
+- Downloadable 6-month sample CSV template for instant testing.
 
-⚡ Future Enhancements
-AI-powered chatbot for insights
-Real-time notifications & alerts
-Advanced predictive analytics models
-Multi-business account support
+### 6. 📊 Interactive Executive Dashboard (`Recharts`)
+- Replaced static mock placeholders with rich `ResponsiveContainer` + `ComposedChart` / `AreaChart` components.
+- Live telemetry with `Monthly` and `Weekly` granularity toggles.
+- Dynamic `7d / 30d / 90d / 12m` time window filters recalculating Period Revenue, Active Customers, Operating Margin, and Net Retention.
+- Dynamic top performing segment breakdowns and system alerts.
+- Working shareable report links (`/dashboard?reportId=...` and `/reports/:id`) with one-click clipboard copying.
+- Full executive report PDF export via `html2canvas` + `jspdf`.
+
+### 7. 💡 Live Market Intelligence Signals
+- Real-time market signals loaded from SQLite with search and category tag filters.
+- Persisted bookmark toggles, reactions, and interactive action item checklists.
+- Autonomous **"Run Intelligence Scan"** tool synthesizing new market opportunities on demand.
+
+### 8. ⚙️ Settings & Client-Side Image Compression
+- Client-side HTML5 `<canvas>` avatar compression (max 256x256, JPEG quality 0.8) to prevent storage bloat.
+- Backend profile updates, current password verification, 2FA toggle, developer API key regeneration, and full account deletion.
+
+---
+
+## 🛠️ Technology Stack
+
+| Layer | Technologies |
+|---|---|
+| **Frontend** | React 19, TypeScript, Vite 6, Tailwind CSS v4, Lucide Icons, Motion (Framer Motion), Recharts 3.8, Sonner |
+| **Backend** | Node.js, Express 4.21, `better-sqlite3`, `bcryptjs`, `jsonwebtoken`, `zod`, `express-rate-limit` |
+| **AI / Machine Learning** | Google GenAI SDK (`@google/genai`), Deterministic Financial Modeling Engine |
+| **Data & Files** | SheetJS (`xlsx`), `jspdf`, `html2canvas` |
+| **Payments** | Razorpay Node SDK with HMAC SHA256 Signature Verification |
+
+---
+
+## 🏁 Quickstart & Installation
+
+### 1. Prerequisites
+- Node.js `>= 18.0.0` (Tested on Node 20, 22, and 24)
+- npm `>= 9.0.0`
+
+### 2. Install Dependencies
+```bash
+npm install
+```
+
+### 3. Environment Variables
+Copy `.env.example` to `.env` (optional for development—TrackWise runs out-of-the-box with defaults):
+```bash
+cp .env.example .env
+```
+
+| Variable | Description | Default / Fallback |
+|---|---|---|
+| `PORT` | Web server listening port | `3000` |
+| `JWT_SECRET` | Secret key for signing user JWT tokens | Internal secure fallback |
+| `GEMINI_API_KEY` | Google Gemini API key | Optional (Falls back to deterministic engine) |
+| `RAZORPAY_KEY_ID` | Razorpay Merchant Key ID | Optional (Falls back to simulated checkout) |
+| `RAZORPAY_KEY_SECRET` | Razorpay Merchant Secret | Optional (Falls back to simulated verification) |
+
+### 4. Run Development Server
+```bash
+npm run dev
+```
+Visit `http://localhost:3000` in your browser.
+
+---
+
+## 🔑 Default Demo Credentials
+
+You can sign in immediately using the pre-seeded demo account or click **"Fill Demo"** on `/login`:
+- **Email:** `alex@kinetic.com`
+- **Password:** `Password123!`
+- **Role:** `Lead Strategist at Kinetic Global`
+
+---
+
+## 🧪 Available Scripts
+
+| Command | Action |
+|---|---|
+| `npm run dev` | Start full-stack application (Vite dev middleware + Express API) |
+| `npm run build` | Compile and bundle production frontend into `dist/` |
+| `npm run start` | Run server in production mode |
+| `npm run lint` | Execute TypeScript type-checking (`tsc --noEmit`) |
+
+---
+
+## 📡 REST API Documentation
+
+### Authentication & User
+- `POST /api/auth/register` - Create user account with seeded time-series starter records
+- `POST /api/auth/login` - Authenticate credentials and receive Bearer JWT
+- `GET /api/auth/me` - Fetch authenticated user profile and subscription status
+- `PUT /api/user/profile` - Update user name, email, phone, role, timezone, or compressed avatar
+- `PUT /api/user/password` - Verify current password and set new password
+- `PUT /api/user/preferences` - Update notifications, integrations, or 2FA flags
+- `POST /api/user/api-key/regenerate` - Generate a new `tw_live_...` developer key
+- `DELETE /api/user/account` - Cascade delete user and all associated records
+
+### Time-Series & Predictions
+- `GET /api/data/timeseries` - Fetch historical records and previous analysis reports
+- `POST /api/data/timeseries/bulk` - Ingest multi-row dataset (validated via Zod)
+- `POST /api/gemini/predict` - Run deterministic math + Gemini strategic forecasting
+- `GET /api/reports/:id` - Fetch individual report by ID (supporting shared report URLs)
+
+### Market Intelligence
+- `GET /api/insights` - Load market signals for user
+- `POST /api/insights/scan` - Synthesize a new market intelligence signal
+- `POST /api/insights/:id/toggle-like` - Increment/decrement reaction counter
+- `POST /api/insights/:id/toggle-save` - Toggle saved bookmark status
+- `PUT /api/insights/:id/actions` - Persist completed action checklist state
+
+### Payments
+- `POST /api/razorpay/create-order` - Create Razorpay order or simulated order
+- `POST /api/razorpay/verify` - Verify HMAC SHA256 signature and upgrade user plan
+
+---
+
+## 📜 License
+MIT License. © 2026 TrackWise Inc. All Rights Reserved.

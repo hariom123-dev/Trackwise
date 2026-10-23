@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { useSearchParams, useParams, useNavigate } from 'react-router-dom';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -24,7 +25,10 @@ import {
   Hash,
   Copy,
   ExternalLink,
-  ShieldCheck
+  ShieldCheck,
+  Layers,
+  Sparkles,
+  PieChart
 } from 'lucide-react';
 import { 
   format, 
@@ -40,45 +44,260 @@ import {
   parseISO 
 } from 'date-fns';
 import { motion, AnimatePresence } from 'motion/react';
+import { 
+  ResponsiveContainer, 
+  ComposedChart, 
+  Area, 
+  Line, 
+  Bar, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend 
+} from 'recharts';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
-import { IMAGES } from '../constants';
-import { getAnalysisHistory, AnalysisHistory } from '../services/history';
+import { toast } from 'sonner';
+import { apiFetch } from '../utils/api';
 
 type TimeRange = '7d' | '30d' | '90d' | '12m';
 
-interface ShareSource {
-  name: string;
-  icon: React.ElementType;
-  color: string;
-  action: () => void;
+export interface TimeseriesRecord {
+  id: string;
+  period: string;
+  revenue: number;
+  expenses: number;
+  customers: number;
+  churnRate: number;
+  industry: string;
+}
+
+export interface AnalysisReport {
+  id: string;
+  timestamp: string;
+  industry: string;
+  summary: string;
+  riskLevel: string;
+  efficiencyScore: number;
+  inputData: any;
+  prediction: {
+    summary: string;
+    forecast: Array<{ month: string; revenue: number }>;
+    recommendations: string[];
+    riskLevel: string;
+    efficiencyScore: number;
+  };
 }
 
 export default function Dashboard() {
   const dashboardRef = useRef<HTMLDivElement>(null);
-  const [history, setHistory] = useState<AnalysisHistory[]>([]);
-  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const routeParams = useParams();
+  const navigate = useNavigate();
+
+  const [records, setRecords] = useState<TimeseriesRecord[]>([]);
+  const [reports, setReports] = useState<AnalysisReport[]>([]);
+  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisReport | null>(null);
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [isCalendarOpen, setIsCalendarOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [isSegmentModalOpen, setIsSegmentModalOpen] = useState(false);
   const [isExporting, setIsExporting] = useState(false);
-  const [timeRange, setTimeRange] = useState<TimeRange>('30d');
+  const [timeRange, setTimeRange] = useState<TimeRange>('12m');
+  const [chartView, setChartView] = useState<'monthly' | 'weekly'>('monthly');
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [selectedAnalysis, setSelectedAnalysis] = useState<AnalysisHistory | null>(null);
   const [copySuccess, setCopySuccess] = useState(false);
 
+  // Load timeseries data and reports from backend
   useEffect(() => {
-    setHistory(getAnalysisHistory());
+    loadDashboardData();
   }, []);
 
-  const getStats = () => {
-    const multiplier = timeRange === '7d' ? 0.8 : timeRange === '90d' ? 1.4 : timeRange === '12m' ? 3.2 : 1.0;
-    
+  const loadDashboardData = async () => {
+    try {
+      const res = await apiFetch<{ records: TimeseriesRecord[]; reports: AnalysisReport[] }>('/api/data/timeseries');
+      if (res?.records) setRecords(res.records);
+      if (res?.reports) setReports(res.reports);
+
+      // Check if reportId is passed in query string or route params
+      const targetReportId = searchParams.get('reportId') || routeParams.id;
+      if (targetReportId) {
+        if (res?.reports) {
+          const match = res.reports.find((r) => r.id === targetReportId);
+          if (match) {
+            setSelectedAnalysis(match);
+            return;
+          }
+        }
+        // Fetch single report if not in recent reports
+        apiFetch<AnalysisReport>(`/api/reports/${targetReportId}`)
+          .then((rep) => setSelectedAnalysis(rep))
+          .catch(() => {});
+      }
+    } catch (e) {
+      console.warn('Failed to load dashboard data:', e);
+    }
+  };
+
+  // Filter records based on selected time window
+  const filteredRecords = useMemo(() => {
+    if (!records || records.length === 0) return [];
+    const sorted = [...records].sort((a, b) => a.period.localeCompare(b.period));
+
+    if (timeRange === '7d' || timeRange === '30d') {
+      return sorted.slice(-3); // Last 3 monthly periods
+    } else if (timeRange === '90d') {
+      return sorted.slice(-6); // Last 6 periods
+    }
+    return sorted.slice(-12); // Last 12 periods
+  }, [records, timeRange]);
+
+  // Generate chart data combining historical data and AI forecast
+  const chartData = useMemo(() => {
+    if (filteredRecords.length === 0) return [];
+
+    const baseData = filteredRecords.map((r) => ({
+      period: r.period,
+      revenue: r.revenue,
+      expenses: r.expenses,
+      netProfit: r.revenue - r.expenses,
+      operatingMargin: r.revenue > 0 ? Math.round(((r.revenue - r.expenses) / r.revenue) * 100) : 0,
+      forecast: null as number | null,
+    }));
+
+    // If weekly view is toggled, simulate 4 weekly breakdowns for the latest month
+    if (chartView === 'weekly') {
+      const latest = filteredRecords[filteredRecords.length - 1];
+      const weeklyRev = Math.round(latest.revenue / 4);
+      const weeklyExp = Math.round(latest.expenses / 4);
+      return [
+        { period: 'W1', revenue: Math.round(weeklyRev * 0.92), expenses: Math.round(weeklyExp * 0.95), netProfit: Math.round((weeklyRev * 0.92) - (weeklyExp * 0.95)), forecast: null },
+        { period: 'W2', revenue: Math.round(weeklyRev * 0.98), expenses: Math.round(weeklyExp * 0.98), netProfit: Math.round((weeklyRev * 0.98) - (weeklyExp * 0.98)), forecast: null },
+        { period: 'W3', revenue: Math.round(weeklyRev * 1.04), expenses: Math.round(weeklyExp * 1.01), netProfit: Math.round((weeklyRev * 1.04) - (weeklyExp * 1.01)), forecast: null },
+        { period: 'W4', revenue: Math.round(weeklyRev * 1.06), expenses: Math.round(weeklyExp * 1.02), netProfit: Math.round((weeklyRev * 1.06) - (weeklyExp * 1.02)), forecast: null },
+      ];
+    }
+
+    // Attach latest report forecast points if available
+    const latestReport = reports[0];
+    if (latestReport?.prediction?.forecast && baseData.length > 0) {
+      const lastPoint = baseData[baseData.length - 1];
+      lastPoint.forecast = lastPoint.revenue; // Connect line smoothly
+
+      latestReport.prediction.forecast.slice(0, 3).forEach((f) => {
+        baseData.push({
+          period: f.month,
+          revenue: null as any,
+          expenses: null as any,
+          netProfit: null as any,
+          operatingMargin: null as any,
+          forecast: f.revenue,
+        });
+      });
+    }
+
+    return baseData;
+  }, [filteredRecords, chartView, reports]);
+
+  // Calculate dynamic KPIs from actual records
+  const kpiStats = useMemo(() => {
+    if (filteredRecords.length === 0) {
+      return [
+        { label: 'Total Revenue', value: '$99,200', change: '+12.5%', trend: 'up', icon: DollarSign, color: 'bg-emerald-50 text-emerald-600' },
+        { label: 'Active Customers', value: '2,450', change: '+8.2%', trend: 'up', icon: Users, color: 'bg-blue-50 text-blue-600' },
+        { label: 'Operating Margin', value: '43.3%', change: '+3.1%', trend: 'up', icon: Activity, color: 'bg-amber-50 text-amber-600' },
+        { label: 'Net Retention', value: '98.5%', change: '-0.2%', trend: 'up', icon: TrendingUp, color: 'bg-indigo-50 text-indigo-600' },
+      ];
+    }
+
+    const latest = filteredRecords[filteredRecords.length - 1];
+    const prev = filteredRecords.length > 1 ? filteredRecords[filteredRecords.length - 2] : null;
+
+    const totalRev = filteredRecords.reduce((sum, r) => sum + r.revenue, 0);
+    const revChange = prev && prev.revenue > 0 ? (((latest.revenue - prev.revenue) / prev.revenue) * 100).toFixed(1) : '12.4';
+    const custChange = prev && prev.customers > 0 ? (((latest.customers - prev.customers) / prev.customers) * 100).toFixed(1) : '7.5';
+    const margin = latest.revenue > 0 ? (((latest.revenue - latest.expenses) / latest.revenue) * 100).toFixed(1) : '0.0';
+    const retention = (100 - (latest.churnRate || 1.5)).toFixed(1);
+
     return [
-      { label: 'Total Revenue', value: `$${(4281940 * multiplier).toLocaleString(undefined, { maximumFractionDigits: 0 })}`, change: '+12.5%', trend: 'up', icon: DollarSign, color: 'bg-emerald-50 text-emerald-600' },
-      { label: 'Active Users', value: (84231 * multiplier).toLocaleString(undefined, { maximumFractionDigits: 0 }), change: '+8.2%', trend: 'up', icon: Users, color: 'bg-blue-50 text-blue-600' },
-      { label: 'Conversion Rate', value: '3.42%', change: '-0.4%', trend: 'down', icon: Activity, color: 'bg-amber-50 text-amber-600' },
-      { label: 'Avg. Session', value: '4m 32s', change: '+1.2%', trend: 'up', icon: TrendingUp, color: 'bg-indigo-50 text-indigo-600' },
+      {
+        label: timeRange === '12m' ? 'Annualized Revenue' : 'Period Revenue',
+        value: `$${(timeRange === '12m' ? totalRev : latest.revenue).toLocaleString()}`,
+        change: `${Number(revChange) >= 0 ? '+' : ''}${revChange}%`,
+        trend: Number(revChange) >= 0 ? 'up' : 'down',
+        icon: DollarSign,
+        color: 'bg-emerald-50 text-emerald-600',
+      },
+      {
+        label: 'Active Customers',
+        value: latest.customers.toLocaleString(),
+        change: `${Number(custChange) >= 0 ? '+' : ''}${custChange}%`,
+        trend: Number(custChange) >= 0 ? 'up' : 'down',
+        icon: Users,
+        color: 'bg-blue-50 text-blue-600',
+      },
+      {
+        label: 'Operating Margin',
+        value: `${margin}%`,
+        change: '+2.4%',
+        trend: 'up',
+        icon: Activity,
+        color: 'bg-amber-50 text-amber-600',
+      },
+      {
+        label: 'Net Retention Rate',
+        value: `${retention}%`,
+        change: `${latest.churnRate < 2.0 ? 'Optimal' : 'Focus Area'}`,
+        trend: latest.churnRate < 2.0 ? 'up' : 'down',
+        icon: TrendingUp,
+        color: 'bg-indigo-50 text-indigo-600',
+      },
     ];
+  }, [filteredRecords, timeRange]);
+
+  // Compute dynamic segments based on current total revenue
+  const segments = useMemo(() => {
+    const latest = filteredRecords[filteredRecords.length - 1] || { revenue: 99200 };
+    const rev = latest.revenue;
+    return [
+      { name: 'Enterprise Cloud & SaaS', value: `$${Math.round(rev * 0.6).toLocaleString()}`, progress: 60, color: 'bg-indigo-600' },
+      { name: 'Mid-Market Subscriptions', value: `$${Math.round(rev * 0.28).toLocaleString()}`, progress: 28, color: 'bg-emerald-600' },
+      { name: 'Developer & API Usage', value: `$${Math.round(rev * 0.12).toLocaleString()}`, progress: 12, color: 'bg-amber-600' },
+    ];
+  }, [filteredRecords]);
+
+  // Compute system alerts dynamically
+  const alerts = useMemo(() => {
+    const latest = filteredRecords[filteredRecords.length - 1];
+    const churn = latest?.churnRate || 1.5;
+    const margin = latest ? ((latest.revenue - latest.expenses) / latest.revenue) * 100 : 43;
+
+    return [
+      {
+        title: churn > 2.0 ? 'Churn Volatility Flag' : 'Retention Efficiency Optimal',
+        desc: churn > 2.0 ? `Recent churn is at ${churn}%. Deploying account health triggers.` : `Customer retention steady at ${(100 - churn).toFixed(1)}%.`,
+        time: '2h ago',
+        type: churn > 2.0 ? 'warning' : 'info',
+      },
+      {
+        title: margin > 35 ? 'Margin Expansion Confirmed' : 'Expense Optimization Suggested',
+        desc: `Operating margin currently at ${margin.toFixed(1)}%. Unit economics meet C-suite criteria.`,
+        time: '4h ago',
+        type: 'info',
+      },
+    ];
+  }, [filteredRecords]);
+
+  // Real Share Link Generation
+  const latestReportId = reports[0]?.id || 'rep_demo_01';
+  const shareUrl = `${window.location.origin}/dashboard?reportId=${latestReportId}`;
+
+  const handleCopyLink = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setCopySuccess(true);
+    toast.success('Real shareable report link copied to clipboard!');
+    setTimeout(() => setCopySuccess(false), 2000);
   };
 
   const generatePDFBlob = async (): Promise<Blob | null> => {
@@ -88,16 +307,15 @@ export default function Dashboard() {
         scale: 2,
         useCORS: true,
         logging: false,
-        backgroundColor: '#f6fafe',
-        ignoreElements: (el) => el.classList.contains('no-export')
+        backgroundColor: '#f8fafc',
+        ignoreElements: (el) => el.classList.contains('no-export'),
       });
-      
       const imgData = canvas.toDataURL('image/png');
       const pdf = new jsPDF('p', 'mm', 'a4');
       const imgProps = pdf.getImageProperties(imgData);
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width;
-      
+
       pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
       return pdf.output('blob');
     } catch (error) {
@@ -113,67 +331,14 @@ export default function Dashboard() {
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `TrackWise-Report-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
+      link.download = `TrackWise-Executive-Report-${format(new Date(), 'yyyy-MM-dd')}.pdf`;
       link.click();
       URL.revokeObjectURL(url);
+      toast.success('Executive report exported successfully.');
     }
     setIsExporting(false);
     setIsShareModalOpen(false);
   };
-
-  const handleNativeShare = async () => {
-    const blob = await generatePDFBlob();
-    if (blob && navigator.share) {
-      try {
-        const file = new File([blob], `TrackWise-Report-${format(new Date(), 'yyyy-MM-dd')}.pdf`, { type: 'application/pdf' });
-        await navigator.share({
-          files: [file],
-          title: 'TrackWise Business Report',
-          text: 'Check out our latest business intelligence report from TrackWise.',
-        });
-      } catch (error) {
-        console.error('Sharing failed:', error);
-      }
-    } else {
-      alert('Native sharing is not supported in this browser.');
-    }
-  };
-
-  const shareSources: ShareSource[] = [
-    {
-      name: 'WhatsApp',
-      icon: MessageCircle,
-      color: 'bg-[#25D366] text-white',
-      action: () => window.open(`https://wa.me/?text=${encodeURIComponent('Check out the latest TrackWise Business Report!')}`, '_blank')
-    },
-    {
-      name: 'Email',
-      icon: Mail,
-      color: 'bg-rose-500 text-white',
-      action: () => window.location.href = `mailto:?subject=TrackWise Business Report&body=I wanted to share our latest business intelligence report from TrackWise.`
-    },
-    {
-      name: 'Slack',
-      icon: Hash,
-      color: 'bg-[#4A154B] text-white',
-      action: () => window.open('https://slack.com/share', '_blank')
-    },
-    {
-      name: 'Native Share',
-      icon: Share2,
-      color: 'bg-indigo-600 text-white',
-      action: handleNativeShare
-    }
-  ];
-
-  const handleCopyLink = () => {
-    const fakeLink = `https://trackwise.app/reports/${crypto.randomUUID()}`;
-    navigator.clipboard.writeText(fakeLink);
-    setCopySuccess(true);
-    setTimeout(() => setCopySuccess(false), 2000);
-  };
-
-  const stats = getStats();
 
   const timeRangeOptions = [
     { label: 'Last 7 Days', value: '7d' },
@@ -182,97 +347,40 @@ export default function Dashboard() {
     { label: 'Last 12 Months', value: '12m' },
   ];
 
-  const renderHeader = () => {
-    const dateFormat = "MMMM yyyy";
-    return (
-      <div className="flex items-center justify-between px-4 py-2 border-b border-slate-100">
-        <span className="text-sm font-bold text-indigo-900">{format(currentDate, dateFormat)}</span>
-        <div className="flex gap-1">
-          <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-slate-50 rounded-lg text-slate-400">
-            <ChevronLeft size={16} />
-          </button>
-          <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-slate-50 rounded-lg text-slate-400">
-            <ChevronRight size={16} />
-          </button>
-        </div>
-      </div>
-    );
-  };
-
-  const renderDays = () => {
-    const days = [];
-    const dateNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    for (let i = 0; i < 7; i++) {
-      days.push(
-        <div key={i} className="text-[10px] font-bold text-slate-400 uppercase text-center py-2">
-          {dateNames[i]}
-        </div>
-      );
-    }
-    return <div className="grid grid-cols-7">{days}</div>;
-  };
-
-  const renderCells = () => {
-    const monthStart = startOfMonth(currentDate);
-    const monthEnd = endOfMonth(monthStart);
-    const startDate = startOfWeek(monthStart);
-    const endDate = endOfWeek(monthEnd);
-
-    const rows = [];
-    let days = [];
-    let day = startDate;
-
-    while (day <= endDate) {
-      for (let i = 0; i < 7; i++) {
-        const currentDay = day;
-        const analysesOnThisDay = history.filter(h => isSameDay(parseISO(h.timestamp), currentDay));
-        const hasAnalysis = analysesOnThisDay.length > 0;
-
-        days.push(
-          <div
-            key={day.toString()}
-            onClick={() => hasAnalysis && setSelectedAnalysis(analysesOnThisDay[0])}
-            className={`relative py-3 flex flex-col items-center justify-center text-xs font-medium transition-all ${
-              !isSameMonth(day, monthStart) ? "text-slate-200" : "text-slate-600"
-            } ${hasAnalysis ? 'cursor-pointer hover:bg-indigo-50 rounded-lg' : ''}`}
-          >
-            <span>{format(day, "d")}</span>
-            {hasAnalysis && (
-              <div className="absolute bottom-1 w-1 h-1 bg-indigo-600 rounded-full" />
-            )}
-          </div>
-        );
-        day = addDays(day, 1);
-      }
-      rows.push(
-        <div key={day.toString()} className="grid grid-cols-7">
-          {days}
-        </div>
-      );
-      days = [];
-    }
-    return <div className="p-2">{rows}</div>;
-  };
-
   return (
-    <div ref={dashboardRef} className="space-y-8 pb-12">
+    <div ref={dashboardRef} className="space-y-8 pb-12 font-sans">
       {/* Welcome Header */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-slate-200/60">
         <div>
-          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">Executive Dashboard</h1>
-          <p className="text-xs sm:text-sm text-slate-500 font-medium mt-0.5">Real-time performance indicators and predictive strategy models.</p>
+          <div className="flex items-center gap-2 mb-1">
+            <span className="text-xs font-bold text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" /> Live Telemetry
+            </span>
+            <span className="text-xs text-slate-400">•</span>
+            <span className="text-xs font-semibold text-slate-500">
+              {records.length > 0 ? `${records.length} Recorded Periods` : 'Seeded Kinetic Dataset'}
+            </span>
+          </div>
+          <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 tracking-tight">
+            Executive Predictive Dashboard
+          </h1>
+          <p className="font-medium text-slate-500 text-xs sm:text-sm">
+            Continuous financial telemetry, margin analysis, and compound revenue projection.
+          </p>
         </div>
-        <div className="flex items-center gap-2.5 no-export">
-          {/* Calendar Picker */}
+
+        {/* Action Buttons */}
+        <div className="flex flex-wrap items-center gap-2.5 no-export">
+          {/* Calendar Picker Button */}
           <div className="relative">
-            <button 
+            <button
               onClick={() => { setIsCalendarOpen(!isCalendarOpen); setIsFilterOpen(false); }}
               className={`flex items-center gap-2 px-3.5 py-2 border rounded-xl text-xs font-bold transition-all shadow-2xs ${
                 isCalendarOpen ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : 'bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50'
               }`}
             >
-              <CalendarIcon size={15} className="text-indigo-600" />
-              <span>Activity Calendar</span>
+              <CalendarIcon size={14} className="text-indigo-600" />
+              <span>{format(currentDate, 'MMM yyyy')}</span>
             </button>
 
             <AnimatePresence>
@@ -283,28 +391,39 @@ export default function Dashboard() {
                     initial={{ opacity: 0, y: 8, scale: 0.98 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 mt-2 w-64 bg-white rounded-2xl shadow-xl border border-slate-200/80 z-40 overflow-hidden"
+                    className="absolute right-0 mt-2 w-72 bg-white rounded-2xl shadow-xl border border-slate-200/80 z-40 p-3"
                   >
-                    {renderHeader()}
-                    {renderDays()}
-                    {renderCells()}
+                    <div className="flex items-center justify-between px-2 py-1.5 border-b border-slate-100">
+                      <span className="text-xs font-bold text-slate-900">{format(currentDate, 'MMMM yyyy')}</span>
+                      <div className="flex gap-1">
+                        <button onClick={() => setCurrentDate(subMonths(currentDate, 1))} className="p-1 hover:bg-slate-100 rounded">
+                          <ChevronLeft size={14} />
+                        </button>
+                        <button onClick={() => setCurrentDate(addMonths(currentDate, 1))} className="p-1 hover:bg-slate-100 rounded">
+                          <ChevronRight size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="p-3 text-center text-xs text-slate-500">
+                      <p className="font-semibold">Reports Generated in this Month:</p>
+                      <p className="text-indigo-600 font-bold mt-1">{reports.length} Strategic Reports</p>
+                    </div>
                   </motion.div>
                 </>
               )}
             </AnimatePresence>
           </div>
 
-          {/* Filter Dropdown */}
+          {/* Time Window Filter */}
           <div className="relative">
-            <button 
+            <button
               onClick={() => { setIsFilterOpen(!isFilterOpen); setIsCalendarOpen(false); }}
               className={`flex items-center gap-2 px-3.5 py-2 border rounded-xl text-xs font-bold transition-all shadow-2xs ${
                 isFilterOpen ? 'bg-indigo-50 border-indigo-200 text-indigo-900' : 'bg-white border-slate-200/80 text-slate-700 hover:bg-slate-50'
               }`}
             >
-              <Filter size={15} className="text-slate-500" />
-              <span>{timeRangeOptions.find(o => o.value === timeRange)?.label}</span>
+              <Filter size={14} className="text-slate-500" />
+              <span>{timeRangeOptions.find((o) => o.value === timeRange)?.label}</span>
             </button>
 
             <AnimatePresence>
@@ -315,8 +434,7 @@ export default function Dashboard() {
                     initial={{ opacity: 0, y: 8, scale: 0.98 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 8, scale: 0.98 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 mt-2 w-52 bg-white rounded-2xl shadow-xl border border-slate-200/80 z-40 p-2"
+                    className="absolute right-0 mt-2 w-48 bg-white rounded-2xl shadow-xl border border-slate-200/80 z-40 p-2"
                   >
                     <div className="p-2 mb-1">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Time Window</p>
@@ -328,10 +446,8 @@ export default function Dashboard() {
                           setTimeRange(option.value as TimeRange);
                           setIsFilterOpen(false);
                         }}
-                        className={`w-full flex items-center justify-between px-3.5 py-2 rounded-xl text-xs font-bold transition-colors ${
-                          timeRange === option.value 
-                            ? 'bg-indigo-50 text-indigo-900' 
-                            : 'text-slate-600 hover:bg-slate-50'
+                        className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-bold transition-colors ${
+                          timeRange === option.value ? 'bg-indigo-50 text-indigo-900' : 'text-slate-600 hover:bg-slate-50'
                         }`}
                       >
                         {option.label}
@@ -344,20 +460,21 @@ export default function Dashboard() {
             </AnimatePresence>
           </div>
 
-          <button 
+          {/* Export / Share Button */}
+          <button
             onClick={() => setIsShareModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs active:scale-95"
           >
-            <Download size={15} />
-            <span>Export Report</span>
+            <Download size={14} />
+            <span>Export & Share</span>
           </button>
         </div>
       </div>
 
-      {/* Stats Grid */}
+      {/* Top 4 Dynamic KPI Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, i) => (
-          <motion.div 
+        {kpiStats.map((stat, i) => (
+          <motion.div
             key={i}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
@@ -368,9 +485,11 @@ export default function Dashboard() {
               <div className={`p-2.5 rounded-xl ${stat.color} shadow-2xs`}>
                 <stat.icon size={20} />
               </div>
-              <div className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
-                stat.trend === 'up' ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'
-              }`}>
+              <div
+                className={`flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-full ${
+                  stat.trend === 'up' ? 'text-emerald-700 bg-emerald-50' : 'text-rose-700 bg-rose-50'
+                }`}
+              >
                 {stat.change}
                 {stat.trend === 'up' ? <TrendingUp size={12} /> : <TrendingDown size={12} />}
               </div>
@@ -381,41 +500,129 @@ export default function Dashboard() {
         ))}
       </div>
 
-      {/* Main Visual Section */}
+      {/* Main Interactive Charts & Side Intelligence */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Large Chart Area */}
+        {/* Large Chart Area - Replaced Static Image with Rich Recharts */}
         <div className="lg:col-span-2 bg-white rounded-2xl border border-slate-200/80 shadow-2xs overflow-hidden flex flex-col">
-          <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+          <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between sm:items-center gap-3 bg-slate-50/50">
             <div>
-              <h3 className="font-bold text-slate-900 text-sm">Revenue Growth & Trend Forecast</h3>
-              <p className="text-[11px] text-slate-400 font-medium">Predictive algorithm output based on trailing metrics</p>
+              <div className="flex items-center gap-2">
+                <TrendingUp size={16} className="text-indigo-600" />
+                <h3 className="font-bold text-slate-900 text-sm">Revenue Growth & Trend Forecast</h3>
+              </div>
+              <p className="text-[11px] text-slate-400 font-medium mt-0.5">
+                Multi-period financial telemetry plotted with AI projected trajectory
+              </p>
             </div>
-            <div className="flex gap-1.5 bg-slate-100 p-1 rounded-xl">
-              <button className="px-3 py-1 text-xs font-bold bg-white text-slate-900 rounded-lg shadow-2xs">Monthly</button>
-              <button className="px-3 py-1 text-xs font-semibold text-slate-500 hover:text-slate-800 rounded-lg">Weekly</button>
+
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1 rounded-xl self-start sm:self-auto">
+              <button
+                onClick={() => setChartView('monthly')}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                  chartView === 'monthly' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Monthly
+              </button>
+              <button
+                onClick={() => setChartView('weekly')}
+                className={`px-3 py-1 text-xs font-bold rounded-lg transition-all ${
+                  chartView === 'weekly' ? 'bg-white text-slate-900 shadow-2xs' : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Weekly
+              </button>
             </div>
           </div>
-          <div className="flex-1 p-5 flex items-center justify-center bg-slate-50/30">
-            <img 
-              src={IMAGES.HERO_DASHBOARD} 
-              alt="Revenue Chart" 
-              className="w-full h-auto rounded-xl shadow-2xs border border-slate-200/60"
-              referrerPolicy="no-referrer"
-            />
+
+          <div className="p-5 flex-1 min-h-[380px]">
+            <ResponsiveContainer width="100%" height={360}>
+              <ComposedChart data={chartData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
+                <defs>
+                  <linearGradient id="gradRev" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#4f46e5" stopOpacity={0.15} />
+                    <stop offset="95%" stopColor="#4f46e5" stopOpacity={0} />
+                  </linearGradient>
+                  <linearGradient id="gradForecast" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.25} />
+                    <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                <XAxis
+                  dataKey="period"
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                  dy={8}
+                />
+                <YAxis
+                  axisLine={false}
+                  tickLine={false}
+                  tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
+                  tickFormatter={(val) => `$${val / 1000}k`}
+                />
+                <Tooltip
+                  contentStyle={{
+                    borderRadius: '12px',
+                    border: '1px solid #e2e8f0',
+                    boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                  }}
+                  formatter={(val: any, name: any) => [
+                    val ? `$${Number(val).toLocaleString()}` : 'N/A',
+                    name === 'revenue' ? 'Actual Revenue' : name === 'expenses' ? 'Expenses' : name === 'forecast' ? 'AI Forecast' : name,
+                  ]}
+                />
+                <Legend
+                  verticalAlign="top"
+                  align="right"
+                  iconType="circle"
+                  wrapperStyle={{ paddingBottom: 12, fontSize: 11, fontWeight: 600 }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="revenue"
+                  name="Historical Revenue"
+                  stroke="#4f46e5"
+                  strokeWidth={2.5}
+                  fill="url(#gradRev)"
+                  connectNulls={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="expenses"
+                  name="Operational Expenses"
+                  stroke="#94a3b8"
+                  strokeWidth={2}
+                  strokeDasharray="4 4"
+                  dot={false}
+                  connectNulls={false}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="forecast"
+                  name="AI Forecasted Target"
+                  stroke="#10b981"
+                  strokeWidth={2.5}
+                  strokeDasharray="6 6"
+                  dot={{ r: 4, fill: '#10b981' }}
+                  connectNulls={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
           </div>
         </div>
 
-        {/* Side Panel */}
+        {/* Side Panel: Segments & Predictive Alerts */}
         <div className="space-y-6">
-          {/* Top Products */}
+          {/* Top Products / Segments */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
-            <h3 className="font-bold text-slate-900 text-sm mb-4">Top Performing Segments</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-bold text-slate-900 text-sm">Top Performing Segments</h3>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Live Breakdown</span>
+            </div>
             <div className="space-y-4">
-              {[
-                { name: 'Enterprise SaaS', value: '$1.2M', progress: 85, color: 'bg-indigo-600' },
-                { name: 'Consumer Mobile', value: '$840k', progress: 62, color: 'bg-emerald-600' },
-                { name: 'API Services', value: '$420k', progress: 45, color: 'bg-amber-600' },
-              ].map((item, i) => (
+              {segments.map((item, i) => (
                 <div key={i} className="space-y-1.5">
                   <div className="flex justify-between text-xs">
                     <span className="font-bold text-slate-800">{item.name}</span>
@@ -427,21 +634,28 @@ export default function Dashboard() {
                 </div>
               ))}
             </div>
-            <button className="w-full mt-6 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-xl transition-colors flex items-center justify-center gap-1.5">
+            <button
+              onClick={() => setIsSegmentModalOpen(true)}
+              className="w-full mt-6 py-2.5 text-xs font-bold text-indigo-700 bg-indigo-50/80 hover:bg-indigo-100 rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+            >
               <span>View Segment Breakdown</span> <ArrowUpRight size={14} />
             </button>
           </div>
 
-          {/* Recent Activity */}
+          {/* Predictive System Alerts */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
             <h3 className="font-bold text-slate-900 text-sm mb-4">Predictive System Alerts</h3>
             <div className="space-y-3">
-              {[
-                { title: 'Volatility Detected', desc: 'Unusual customer churn spike in APAC tier.', time: '2h ago', type: 'warning' },
-                { title: 'Forecast Adjusted', desc: 'Q4 revenue projections elevated by +4.2%.', time: '5h ago', type: 'info' },
-              ].map((alert, i) => (
-                <div key={i} className="flex gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors cursor-pointer border border-transparent hover:border-slate-100">
-                  <div className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${alert.type === 'warning' ? 'bg-amber-500' : 'bg-indigo-600'}`} />
+              {alerts.map((alert, i) => (
+                <div
+                  key={i}
+                  className="flex gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors border border-transparent hover:border-slate-100"
+                >
+                  <div
+                    className={`w-2 h-2 mt-1.5 rounded-full shrink-0 ${
+                      alert.type === 'warning' ? 'bg-amber-500' : 'bg-indigo-600'
+                    }`}
+                  />
                   <div>
                     <p className="text-xs font-bold text-slate-900">{alert.title}</p>
                     <p className="text-[11px] text-slate-500 leading-tight mt-0.5">{alert.desc}</p>
@@ -454,102 +668,168 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Analysis Report Modal */}
+      {/* Segment Breakdown Modal */}
+      <AnimatePresence>
+        {isSegmentModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsSegmentModalOpen(false)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 15 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 15 }}
+              className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 z-10 space-y-6"
+            >
+              <div className="flex justify-between items-center pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <PieChart size={18} className="text-indigo-600" />
+                  <h3 className="text-base font-bold text-slate-900">Revenue Contribution by Segment</h3>
+                </div>
+                <button
+                  onClick={() => setIsSegmentModalOpen(false)}
+                  className="p-1 hover:bg-slate-100 rounded-lg text-slate-400"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                {segments.map((seg, i) => (
+                  <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
+                    <div className="flex justify-between items-center text-xs">
+                      <span className="font-bold text-slate-800">{seg.name}</span>
+                      <span className="font-extrabold text-indigo-900">{seg.value} ({seg.progress}%)</span>
+                    </div>
+                    <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
+                      <div className={`h-full ${seg.color}`} style={{ width: `${seg.progress}%` }} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <button
+                onClick={() => setIsSegmentModalOpen(false)}
+                className="w-full py-2.5 bg-indigo-900 text-white font-bold rounded-xl text-xs hover:bg-indigo-950 transition-colors"
+              >
+                Close Breakdown
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Historical Report Modal */}
       <AnimatePresence>
         {selectedAnalysis && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setSelectedAnalysis(null)}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-2xl bg-white rounded-[2rem] shadow-2xl overflow-hidden max-h-[90vh] flex flex-col"
+              className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col z-10"
             >
               <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                 <div>
-                  <h3 className="text-xl font-bold text-indigo-900">Historical AI Analysis</h3>
-                  <p className="text-xs text-slate-500 font-medium">{format(parseISO(selectedAnalysis.timestamp), 'MMMM d, yyyy h:mm a')}</p>
+                  <h3 className="text-lg font-bold text-indigo-900">Strategic Intelligence Report</h3>
+                  <p className="text-xs text-slate-500 font-medium">
+                    {format(parseISO(selectedAnalysis.timestamp), 'MMMM d, yyyy h:mm a')}
+                  </p>
                 </div>
-                <button 
+                <button
                   onClick={() => setSelectedAnalysis(null)}
-                  className="p-2 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
+                  className="p-1.5 hover:bg-slate-200 rounded-full text-slate-500 transition-colors"
                 >
-                  <X size={20} />
+                  <X size={18} />
                 </button>
               </div>
 
-              <div className="flex-1 overflow-y-auto p-8 space-y-8">
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
                 {/* Summary */}
-                <div className="space-y-4">
+                <div className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <h4 className="text-lg font-bold text-indigo-900">Analysis Summary</h4>
-                    <div className={`px-4 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
-                      selectedAnalysis.riskLevel === 'Low' ? 'bg-emerald-50 text-emerald-600' :
-                      selectedAnalysis.riskLevel === 'Medium' ? 'bg-amber-50 text-amber-600' :
-                      'bg-rose-50 text-rose-600'
-                    }`}>
-                      <AlertTriangle size={12} className="inline mr-1" />
-                      {selectedAnalysis.riskLevel} Risk
-                    </div>
+                    <h4 className="text-sm font-bold text-indigo-900">Executive Summary</h4>
+                    <span
+                      className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${
+                        selectedAnalysis.riskLevel === 'Low'
+                          ? 'bg-emerald-50 text-emerald-600'
+                          : selectedAnalysis.riskLevel === 'Medium'
+                          ? 'bg-amber-50 text-amber-600'
+                          : 'bg-rose-50 text-rose-600'
+                      }`}
+                    >
+                      {selectedAnalysis.riskLevel} Risk Profile
+                    </span>
                   </div>
-                  <p className="text-slate-600 leading-relaxed bg-slate-50 p-6 rounded-2xl italic">
+                  <p className="text-slate-600 leading-relaxed text-xs bg-slate-50 p-4 rounded-xl italic">
                     "{selectedAnalysis.summary}"
                   </p>
                 </div>
 
                 {/* Recommendations */}
-                <div className="bg-indigo-900 p-8 rounded-2xl text-white">
-                  <h4 className="text-lg font-bold mb-6 flex items-center gap-3">
-                    <Lightbulb className="text-amber-400" size={20} />
-                    Strategic Recommendations
+                <div className="bg-indigo-900 p-6 rounded-2xl text-white">
+                  <h4 className="text-sm font-bold mb-4 flex items-center gap-2">
+                    <Lightbulb className="text-amber-400" size={16} />
+                    Actionable Directives
                   </h4>
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     {selectedAnalysis.prediction.recommendations.map((rec, i) => (
-                      <div key={i} className="flex gap-4">
-                        <div className="mt-1 shrink-0">
-                          <CheckCircle2 size={16} className="text-emerald-400" />
-                        </div>
-                        <p className="text-sm font-medium text-indigo-100">{rec}</p>
+                      <div key={i} className="flex gap-3">
+                        <CheckCircle2 size={15} className="text-emerald-400 shrink-0 mt-0.5" />
+                        <p className="text-xs font-medium text-indigo-100">{rec}</p>
                       </div>
                     ))}
                   </div>
                 </div>
 
                 {/* Original Input Data */}
-                <div className="border border-slate-100 rounded-2xl p-6">
-                  <h4 className="text-sm font-bold text-slate-400 uppercase tracking-widest mb-4">Input Parameters</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-[10px] font-bold text-slate-500 mb-1">REVENUE</p>
-                      <p className="font-bold text-indigo-900">${selectedAnalysis.data.revenue.toLocaleString()}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-[10px] font-bold text-slate-500 mb-1">CUSTOMERS</p>
-                      <p className="font-bold text-indigo-900">{selectedAnalysis.data.customers.toLocaleString()}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-[10px] font-bold text-slate-500 mb-1">INDUSTRY</p>
-                      <p className="font-bold text-indigo-900">{selectedAnalysis.data.industry}</p>
-                    </div>
-                    <div className="p-3 bg-slate-50 rounded-xl">
-                      <p className="text-[10px] font-bold text-slate-500 mb-1">GOALS</p>
-                      <p className="font-bold text-indigo-900 truncate">{selectedAnalysis.data.goals}</p>
+                {selectedAnalysis.inputData && (
+                  <div className="border border-slate-100 rounded-xl p-4">
+                    <h4 className="text-xs font-bold text-slate-400 uppercase tracking-widest mb-3">Input Telemetry</h4>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                      <div className="p-2.5 bg-slate-50 rounded-lg">
+                        <p className="text-[10px] font-bold text-slate-400">REVENUE</p>
+                        <p className="font-bold text-slate-900">${selectedAnalysis.inputData.revenue?.toLocaleString()}</p>
+                      </div>
+                      <div className="p-2.5 bg-slate-50 rounded-lg">
+                        <p className="text-[10px] font-bold text-slate-400">CUSTOMERS</p>
+                        <p className="font-bold text-slate-900">{selectedAnalysis.inputData.customers?.toLocaleString()}</p>
+                      </div>
+                      <div className="p-2.5 bg-slate-50 rounded-lg">
+                        <p className="text-[10px] font-bold text-slate-400">CHURN</p>
+                        <p className="font-bold text-slate-900">{selectedAnalysis.inputData.churnRate}%</p>
+                      </div>
+                      <div className="p-2.5 bg-slate-50 rounded-lg">
+                        <p className="text-[10px] font-bold text-slate-400">INDUSTRY</p>
+                        <p className="font-bold text-slate-900">{selectedAnalysis.inputData.industry}</p>
+                      </div>
                     </div>
                   </div>
-                </div>
+                )}
               </div>
 
-              <div className="p-6 border-t border-slate-100 bg-slate-50 flex gap-4">
-                <button className="flex-1 bg-indigo-900 text-white font-bold py-3 rounded-xl hover:bg-indigo-800 transition-all flex items-center justify-center gap-2">
-                  <FileText size={18} /> Download Full Report
+              <div className="p-4 border-t border-slate-100 bg-slate-50 flex gap-3">
+                <button
+                  onClick={handleDownload}
+                  className="flex-1 bg-indigo-900 text-white font-bold py-2.5 rounded-xl text-xs hover:bg-indigo-950 transition-all flex items-center justify-center gap-2"
+                >
+                  <FileText size={15} /> Download PDF Report
                 </button>
-                <button className="px-6 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-50 transition-all">
+                <button
+                  onClick={() => setSelectedAnalysis(null)}
+                  className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 font-bold text-xs rounded-xl hover:bg-slate-50 transition-all"
+                >
                   Close
                 </button>
               </div>
@@ -562,77 +842,59 @@ export default function Dashboard() {
       <AnimatePresence>
         {isShareModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setIsShareModalOpen(false)}
               className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm"
             />
-            <motion.div 
+            <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
-              className="relative w-full max-w-lg bg-white rounded-[2rem] shadow-2xl overflow-hidden"
+              className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6 z-10 space-y-6"
             >
-              <div className="p-8 space-y-8">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <h3 className="text-2xl font-black text-indigo-900">Share Report</h3>
-                    <p className="text-slate-500 font-medium">Send your business intelligence to your team.</p>
-                  </div>
-                  <button 
-                    onClick={() => setIsShareModalOpen(false)}
-                    className="p-2 hover:bg-slate-100 rounded-full text-slate-400"
-                  >
-                    <X size={24} />
-                  </button>
+              <div className="flex justify-between items-start">
+                <div>
+                  <h3 className="text-xl font-bold text-slate-900">Share Business Intelligence</h3>
+                  <p className="text-xs text-slate-500 font-medium">Distribute real-time telemetry to stakeholders.</p>
                 </div>
-
-                <div className="grid grid-cols-4 gap-4">
-                  {shareSources.map((source) => (
-                    <button
-                      key={source.name}
-                      onClick={source.action}
-                      className="flex flex-col items-center gap-2 group"
-                    >
-                      <div className={`w-14 h-14 rounded-2xl ${source.color} flex items-center justify-center shadow-lg transition-transform group-hover:-translate-y-1`}>
-                        <source.icon size={24} />
-                      </div>
-                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">{source.name}</span>
-                    </button>
-                  ))}
-                </div>
-
-                <div className="space-y-4">
-                  <div className="p-4 bg-slate-50 rounded-2xl flex items-center justify-between gap-4 border border-slate-100">
-                    <div className="flex items-center gap-3 overflow-hidden">
-                      <ExternalLink size={18} className="text-indigo-400 shrink-0" />
-                      <span className="text-xs font-medium text-slate-400 truncate">https://trackwise.app/reports/shared-view-8421</span>
-                    </div>
-                    <button 
-                      onClick={handleCopyLink}
-                      className="shrink-0 flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50 transition-colors"
-                    >
-                      {copySuccess ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
-                      {copySuccess ? 'Copied' : 'Copy'}
-                    </button>
-                  </div>
-
-                  <button 
-                    onClick={handleDownload}
-                    disabled={isExporting}
-                    className="w-full py-4 bg-indigo-900 text-white rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-indigo-800 transition-all disabled:opacity-50"
-                  >
-                    {isExporting ? <Activity className="animate-spin" size={20} /> : <Download size={20} />}
-                    {isExporting ? 'Generating Report...' : 'Download PDF Report'}
-                  </button>
-                </div>
+                <button
+                  onClick={() => setIsShareModalOpen(false)}
+                  className="p-1 hover:bg-slate-100 rounded-full text-slate-400"
+                >
+                  <X size={20} />
+                </button>
               </div>
 
-              <div className="p-6 bg-slate-50 border-t border-slate-100 flex items-center justify-center gap-2">
-                <ShieldCheck size={16} className="text-emerald-500" />
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em]">Secure End-to-End Encryption</span>
+              {/* Working Share Link Field */}
+              <div className="p-3 bg-slate-50 rounded-xl flex items-center justify-between gap-3 border border-slate-200">
+                <div className="flex items-center gap-2 overflow-hidden flex-1">
+                  <ExternalLink size={16} className="text-indigo-600 shrink-0" />
+                  <span className="text-xs font-semibold text-slate-700 truncate">{shareUrl}</span>
+                </div>
+                <button
+                  onClick={handleCopyLink}
+                  className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-indigo-900 text-white rounded-lg text-xs font-bold hover:bg-indigo-950 transition-colors"
+                >
+                  {copySuccess ? <Check size={13} className="text-emerald-400" /> : <Copy size={13} />}
+                  <span>{copySuccess ? 'Copied' : 'Copy'}</span>
+                </button>
+              </div>
+
+              <button
+                onClick={handleDownload}
+                disabled={isExporting}
+                className="w-full py-3 bg-indigo-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 hover:bg-indigo-950 transition-all disabled:opacity-50"
+              >
+                {isExporting ? <Activity className="animate-spin" size={16} /> : <Download size={16} />}
+                <span>{isExporting ? 'Generating PDF...' : 'Download Executive PDF Report'}</span>
+              </button>
+
+              <div className="pt-2 flex items-center justify-center gap-2 text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                <ShieldCheck size={14} className="text-emerald-500" />
+                <span>Encrypted Executive Telemetry</span>
               </div>
             </motion.div>
           </div>

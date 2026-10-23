@@ -8,48 +8,69 @@ import Insights from './pages/Insights';
 import Subscription from './pages/Subscription'; 
 import Settings from './pages/Settings'; 
 import Layout from './components/Layout'; 
+import ProtectedRoute from './components/ProtectedRoute';
+import { AuthProvider } from './context/AuthContext';
 import { Toaster } from 'sonner';
  
 function App() {
   return (
-    <Router>
-      <Toaster position="top-right" richColors />
-      <Routes>
-        {/* Public Routes */}
-        <Route path="/" element={<Landing />} />
-        <Route path="/login" element={<Login />} />
+    <AuthProvider>
+      <Router>
+        <Toaster position="top-right" richColors />
+        <Routes>
+          {/* Public Routes */}
+          <Route path="/" element={<Landing />} />
+          <Route path="/login" element={<Login />} />
 
-        {/* Dashboard Routes (Wrapped in Layout) */}
-        <Route path="/dashboard" element={
-          <Layout>
-            <Dashboard />
-          </Layout>
-        } />
-        <Route path="/data" element={
-          <Layout>
-            <Data />
-          </Layout>
-        } />
-        <Route path="/insights" element={
-          <Layout>
-            <Insights />
-          </Layout>
-        } />
-        <Route path="/subscription" element={
-          <Layout>
-            <Subscription />
-          </Layout>
-        } />
-        <Route path="/settings" element={
-          <Layout>
-            <Settings />
-          </Layout>
-        } />
+          {/* Shared / Public Report Link */}
+          <Route path="/reports/:id" element={
+            <Layout>
+              <Dashboard />
+            </Layout>
+          } />
 
-        {/* Fallback */}
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </Router>
+          {/* Protected Dashboard Routes (Wrapped in ProtectedRoute and Layout) */}
+          <Route path="/dashboard" element={
+            <ProtectedRoute>
+              <Layout>
+                <Dashboard />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/data" element={
+            <ProtectedRoute>
+              <Layout>
+                <Data />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/insights" element={
+            <ProtectedRoute>
+              <Layout>
+                <Insights />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/subscription" element={
+            <ProtectedRoute>
+              <Layout>
+                <Subscription />
+              </Layout>
+            </ProtectedRoute>
+          } />
+          <Route path="/settings" element={
+            <ProtectedRoute>
+              <Layout>
+                <Settings />
+              </Layout>
+            </ProtectedRoute>
+          } />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
 

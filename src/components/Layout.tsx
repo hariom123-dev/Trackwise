@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Database, 
@@ -17,10 +17,12 @@ import {
   FileText,
   ArrowRight,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  LogOut
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getStoredProfile, UserProfile } from '../utils/profileStorage';
+import { useAuth } from '../context/AuthContext';
+import CommandSearch from './CommandSearch';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -28,17 +30,24 @@ interface LayoutProps {
 
 export default function Layout({ children }: LayoutProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isGridOpen, setIsGridOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
-  const [userProfile, setUserProfile] = useState<UserProfile>(getStoredProfile);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
 
+  // Global ⌘K / Ctrl+K keyboard shortcut
   useEffect(() => {
-    const handleProfileUpdate = () => {
-      setUserProfile(getStoredProfile());
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      }
     };
-    window.addEventListener('profile-updated', handleProfileUpdate);
-    return () => window.removeEventListener('profile-updated', handleProfileUpdate);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const navItems = [
@@ -50,22 +59,43 @@ export default function Layout({ children }: LayoutProps) {
   ];
 
   const quickActions = [
-    { icon: Database, label: 'Data Lab', desc: 'Manage datasets', color: 'bg-indigo-600' },
-    { icon: TrendingUp, label: 'ML Models', desc: 'Predictive tools', color: 'bg-emerald-600' },
-    { icon: FileText, label: 'Reports', desc: 'Export analytics', color: 'bg-blue-600' },
-    { icon: BarChart, label: 'Visualizer', desc: 'Dynamic charts', color: 'bg-purple-600' },
-    { icon: Briefcase, label: 'Portfolio', desc: 'Assets overview', color: 'bg-amber-600' },
-    { icon: Search, label: 'Discovery', desc: 'Explore trends', color: 'bg-rose-600' },
+    { icon: Database, label: 'Data Lab', desc: 'Manage datasets', color: 'bg-indigo-600', path: '/data' },
+    { icon: TrendingUp, label: 'ML Models', desc: 'Predictive tools', color: 'bg-emerald-600', path: '/data' },
+    { icon: FileText, label: 'Reports', desc: 'Executive analytics', color: 'bg-blue-600', path: '/dashboard' },
+    { icon: BarChart, label: 'Visualizer', desc: 'Dynamic charts', color: 'bg-purple-600', path: '/dashboard' },
+    { icon: Briefcase, label: 'Intelligence', desc: 'Market signals', color: 'bg-amber-600', path: '/insights' },
+    { icon: Search, label: 'Discovery', desc: 'Explore trends', color: 'bg-rose-600', path: '/insights' },
   ];
 
   const notifications = [
-    { title: 'Goal Reached', text: 'You hit your monthly revenue target.', time: '2m ago', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50' },
-    { title: 'New Insight', text: 'ML suggests optimizing churn rate.', time: '1h ago', icon: Lightbulb, color: 'text-indigo-600 bg-indigo-50' },
-    { title: 'System Update', text: 'TrackWise v3.4 is now live.', time: '3h ago', icon: Settings, color: 'text-slate-600 bg-slate-100' },
+    { title: 'Telemetry Updated', text: 'Financial metrics synced with SQLite store.', time: 'Just now', icon: TrendingUp, color: 'text-emerald-600 bg-emerald-50' },
+    { title: 'New Market Signal', text: 'AI engine generated regional expansion insight.', time: '20m ago', icon: Lightbulb, color: 'text-indigo-600 bg-indigo-50' },
+    { title: 'System Engine', text: 'Deterministic ML models running at 100% precision.', time: '1h ago', icon: Settings, color: 'text-slate-600 bg-slate-100' },
   ];
+
+  const planName = 
+    user?.planId === 'enterprise' 
+      ? 'Enterprise Plan Active' 
+      : user?.planId === 'professional' 
+      ? 'Professional Plan Active' 
+      : 'Free Trial Active';
+
+  const planBadgeColor = 
+    user?.planId === 'enterprise' 
+      ? 'text-emerald-400' 
+      : user?.planId === 'professional' 
+      ? 'text-indigo-300' 
+      : 'text-amber-400';
+
+  const userName = user?.name || 'Alex Sterling';
+  const userRole = user?.role || 'Lead Strategist';
+  const userAvatar = user?.avatar || 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80';
 
   return (
     <div className="flex min-h-screen bg-[#f8fafc] font-sans text-slate-900 antialiased">
+      {/* Command Palette */}
+      <CommandSearch isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
+
       {/* Mobile Sidebar Backdrop */}
       <AnimatePresence>
         {isSidebarOpen && (
@@ -128,14 +158,16 @@ export default function Layout({ children }: LayoutProps) {
           })}
         </nav>
 
-        {/* Upgrade / Pro Banner */}
+        {/* Dynamic Plan Banner */}
         <div className="mx-1 my-4 p-4 rounded-2xl bg-gradient-to-b from-slate-900 to-indigo-950 text-white relative overflow-hidden border border-indigo-900/50">
           <div className="absolute top-0 right-0 w-24 h-24 bg-indigo-500/10 rounded-full blur-xl pointer-events-none" />
-          <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400 uppercase tracking-wider mb-1">
-            <Sparkles size={12} /> Pro Plan Active
+          <div className={`flex items-center gap-1.5 text-xs font-bold ${planBadgeColor} uppercase tracking-wider mb-1`}>
+            <Sparkles size={12} /> {planName}
           </div>
           <p className="text-xs text-slate-300 leading-relaxed font-medium mb-3">
-            ML engine running with 99.8% precision rate.
+            {user?.planId === 'enterprise' 
+              ? 'Dedicated ML throughput & unlimited ingestion enabled.' 
+              : 'Continuous predictive business forecasting active.'}
           </p>
           <Link 
             to="/subscription" 
@@ -145,22 +177,35 @@ export default function Layout({ children }: LayoutProps) {
           </Link>
         </div>
 
-        {/* User Profile Footer */}
-        <Link 
-          to="/settings"
-          className="pt-4 px-2 flex items-center gap-3 border-t border-slate-100 hover:bg-slate-50 transition-colors rounded-xl"
-        >
-          <img 
-            src={userProfile.avatar} 
-            alt={userProfile.name} 
-            className="w-9 h-9 rounded-full object-cover ring-2 ring-slate-100 shadow-xs"
-            referrerPolicy="no-referrer"
-          />
-          <div className="overflow-hidden flex-1">
-            <p className="text-xs font-bold text-slate-900 truncate">{userProfile.name}</p>
-            <p className="text-[10px] text-slate-400 font-medium truncate">{userProfile.role}</p>
-          </div>
-        </Link>
+        {/* User Profile & Sign Out Footer */}
+        <div className="pt-3 px-2 flex items-center justify-between border-t border-slate-100">
+          <Link 
+            to="/settings"
+            className="flex items-center gap-2.5 hover:bg-slate-50 transition-colors p-1.5 rounded-xl flex-1 min-w-0"
+          >
+            <img 
+              src={userAvatar} 
+              alt={userName} 
+              className="w-8 h-8 rounded-full object-cover ring-2 ring-slate-100 shadow-xs shrink-0"
+              referrerPolicy="no-referrer"
+            />
+            <div className="overflow-hidden flex-1 min-w-0">
+              <p className="text-xs font-bold text-slate-900 truncate">{userName}</p>
+              <p className="text-[10px] text-slate-400 font-medium truncate">{userRole}</p>
+            </div>
+          </Link>
+
+          <button
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
+            title="Sign Out"
+            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-colors ml-1 shrink-0"
+          >
+            <LogOut size={16} />
+          </button>
+        </div>
       </aside>
 
       {/* Main Layout Area */}
@@ -175,17 +220,22 @@ export default function Layout({ children }: LayoutProps) {
             >
               <Menu size={20} />
             </button>
-            <div className="hidden sm:flex items-center flex-1">
+
+            {/* Clickable Command Search Bar */}
+            <div 
+              onClick={() => setIsSearchOpen(true)}
+              className="hidden sm:flex items-center flex-1 cursor-pointer"
+            >
               <div className="relative w-full group">
-                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-600 transition-colors" size={16} />
-                <input 
-                  type="text" 
-                  placeholder="Search analytics, models, or datasets..." 
-                  className="w-full bg-slate-100/80 hover:bg-slate-100 border border-transparent focus:border-indigo-300 focus:bg-white rounded-xl pl-10 pr-12 py-2 text-xs font-medium text-slate-800 placeholder-slate-400 focus:outline-none transition-all"
-                />
-                <kbd className="absolute right-3 top-1/2 -translate-y-1/2 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400 bg-white border border-slate-200 rounded shadow-2xs pointer-events-none hidden md:inline-block">
-                  ⌘K
-                </kbd>
+                <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 group-hover:text-indigo-600 transition-colors" size={16} />
+                <div 
+                  className="w-full bg-slate-100/80 hover:bg-slate-100 border border-transparent hover:border-slate-300 rounded-xl pl-10 pr-12 py-2 text-xs font-medium text-slate-400 select-none flex items-center justify-between transition-all"
+                >
+                  <span>Search analytics, models, or datasets...</span>
+                  <kbd className="px-1.5 py-0.5 text-[10px] font-bold text-slate-400 bg-white border border-slate-200 rounded shadow-2xs">
+                    ⌘K
+                  </kbd>
+                </div>
               </div>
             </div>
             <span className="sm:hidden text-base font-extrabold text-slate-900">TrackWise</span>
@@ -232,7 +282,10 @@ export default function Layout({ children }: LayoutProps) {
                           </div>
                         ))}
                       </div>
-                      <button className="w-full mt-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors border border-indigo-100">
+                      <button 
+                        onClick={() => { setIsNotifOpen(false); navigate('/insights'); }}
+                        className="w-full mt-3 py-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors border border-indigo-100"
+                      >
                         View Activity Log
                       </button>
                     </motion.div>
@@ -264,14 +317,17 @@ export default function Layout({ children }: LayoutProps) {
                     >
                       <div className="mb-4">
                         <h4 className="text-sm font-bold text-slate-900">Quick Modules</h4>
-                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Fast Access Tools</p>
+                        <p className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider">Fast Access Navigation</p>
                       </div>
                       
                       <div className="grid grid-cols-2 gap-2.5">
                         {quickActions.map((action, i) => (
                           <button 
                             key={i} 
-                            onClick={() => setIsGridOpen(false)}
+                            onClick={() => {
+                              setIsGridOpen(false);
+                              navigate(action.path);
+                            }}
                             className="group flex flex-col items-center p-3 rounded-xl hover:bg-slate-50 border border-slate-100 transition-all text-center"
                           >
                             <div className={`p-2.5 rounded-xl ${action.color} text-white shadow-xs group-hover:scale-105 transition-transform`}>
@@ -285,7 +341,9 @@ export default function Layout({ children }: LayoutProps) {
 
                       <div className="mt-4 pt-3 border-t border-slate-100 flex items-center justify-between text-[11px] font-semibold text-slate-400">
                         <span>Workspace v3.4.0</span>
-                        <span className="text-indigo-600 hover:underline cursor-pointer">Docs</span>
+                        <Link to="/subscription" onClick={() => setIsGridOpen(false)} className="text-indigo-600 hover:underline">
+                          Tiers
+                        </Link>
                       </div>
                     </motion.div>
                   </>
@@ -300,13 +358,13 @@ export default function Layout({ children }: LayoutProps) {
               title="Profile Settings"
             >
               <img 
-                src={userProfile.avatar} 
-                alt={userProfile.name} 
+                src={userAvatar} 
+                alt={userName} 
                 className="w-7 h-7 rounded-full object-cover ring-1 ring-slate-200"
                 referrerPolicy="no-referrer"
               />
               <span className="hidden md:inline-block text-xs font-bold text-slate-800">
-                {userProfile.name.split(' ')[0] || 'User'}
+                {userName.split(' ')[0] || 'User'}
               </span>
             </Link>
           </div>
@@ -320,4 +378,3 @@ export default function Layout({ children }: LayoutProps) {
     </div>
   );
 }
-
