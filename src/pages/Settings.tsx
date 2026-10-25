@@ -23,7 +23,8 @@ import {
   RefreshCw,
   Users,
   UserPlus,
-  ShieldCheck
+  ShieldCheck,
+  Send
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'motion/react';
@@ -195,6 +196,39 @@ export default function Settings() {
     }
   };
 
+  // Trigger Weekly CRON Report Manually
+  const [triggeringReport, setTriggeringReport] = useState(false);
+  const handleTriggerReport = async () => {
+    if (!activeWorkspace?.id) {
+      toast.error('No active workspace selected');
+      return;
+    }
+    setTriggeringReport(true);
+    try {
+      const res = await apiFetch<{
+        success: boolean;
+        message: string;
+        previewUrl?: string | null;
+        results?: any[];
+      }>('/api/jobs/trigger-weekly-report', {
+        method: 'POST',
+      });
+
+      if (res?.success) {
+        toast.success(res.message || 'Weekly executive brief dispatched successfully!');
+        if (res.previewUrl) {
+          window.open(res.previewUrl, '_blank', 'noopener,noreferrer');
+        }
+      } else {
+        toast.error('Could not dispatch weekly report');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to trigger weekly report');
+    } finally {
+      setTriggeringReport(false);
+    }
+  };
+
   useEffect(() => {
     if (user) {
       setProfileData({
@@ -232,6 +266,27 @@ export default function Settings() {
       } catch (err) {
         toast.error('Failed to process image');
       }
+    }
+  };
+
+  // Reset Avatar to Default Image
+  const handleResetImage = async () => {
+    const defaultAvatar = 'https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80';
+    const updated = { ...profileData, avatar: defaultAvatar };
+    setProfileData(updated);
+
+    try {
+      const res = await apiFetch<{ user: any }>('/api/user/profile', {
+        method: 'PUT',
+        body: JSON.stringify(updated),
+      });
+
+      if (res?.user) {
+        updateUserState(res.user);
+        toast.success('Profile avatar reset to default image.');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to reset profile avatar.');
     }
   };
 
@@ -453,9 +508,18 @@ export default function Settings() {
                     <button
                       type="button"
                       onClick={handleFileClick}
-                      className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 hover:underline"
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 hover:underline cursor-pointer"
                     >
                       <Upload size={13} /> Change Avatar
+                    </button>
+                    <span className="text-slate-300">•</span>
+                    <button
+                      type="button"
+                      onClick={handleResetImage}
+                      className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 hover:text-rose-600 transition-colors cursor-pointer"
+                      title="Reset to default system avatar"
+                    >
+                      <RefreshCw size={12} /> Reset Image
                     </button>
                   </div>
                 </div>
@@ -557,14 +621,48 @@ export default function Settings() {
                     Manage analysts, permissions, and roles for <span className="font-bold text-slate-800">{activeWorkspace?.name || 'Active Workspace'}</span>.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setShowInviteModal(true)}
-                  className="flex items-center gap-2 px-4 py-2.5 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs shrink-0 cursor-pointer"
-                >
-                  <UserPlus size={15} />
-                  <span>Invite Team Member</span>
-                </button>
+                <div className="flex items-center gap-2.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={triggeringReport}
+                    onClick={handleTriggerReport}
+                    className="flex items-center gap-2 px-3.5 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer disabled:opacity-50"
+                  >
+                    {triggeringReport ? (
+                      <Loader2 size={14} className="animate-spin text-indigo-600" />
+                    ) : (
+                      <Send size={14} className="text-indigo-600" />
+                    )}
+                    <span>{triggeringReport ? 'Dispatching...' : 'Send Test Report Now'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setShowInviteModal(true)}
+                    className="flex items-center gap-2 px-4 py-2.5 bg-indigo-900 text-white rounded-xl text-xs font-bold hover:bg-indigo-950 transition-all shadow-xs shrink-0 cursor-pointer"
+                  >
+                    <UserPlus size={15} />
+                    <span>Invite Team Member</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* CRON Schedule Status Banner */}
+              <div className="p-3.5 rounded-xl bg-indigo-50/70 border border-indigo-100 flex items-start sm:items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-1.5 rounded-lg bg-indigo-100 text-indigo-700 shrink-0">
+                    <Mail size={15} />
+                  </div>
+                  <div>
+                    <span className="font-extrabold text-indigo-950">Automated Weekly Executive Dispatch Active</span>
+                    <p className="text-[11px] text-indigo-700 font-medium">
+                      Every Monday at 8:00 AM, all workspace members receive a 2-page server-side Vector PDF brief with GAAP P&L & SaaS scorecards.
+                    </p>
+                  </div>
+                </div>
+                <span className="text-[10px] font-black uppercase tracking-wider bg-white text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded-full shrink-0">
+                  CRON 0 8 * * 1
+                </span>
               </div>
 
               {loadingMembers ? (

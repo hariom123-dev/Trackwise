@@ -12,14 +12,18 @@ import ProtectedRoute from './components/ProtectedRoute';
 import { AuthProvider } from './context/AuthContext';
 import { WorkspaceProvider } from './context/WorkspaceContext';
 import { Toaster } from 'sonner';
+import { GoogleOAuthProvider } from '@react-oauth/google';
+
+const GOOGLE_CLIENT_ID = (import.meta as any).env?.VITE_GOOGLE_CLIENT_ID || '104712839210-demo.apps.googleusercontent.com';
  
 function App() {
   return (
-    <AuthProvider>
-      <WorkspaceProvider>
-        <Router>
-          <Toaster position="top-right" richColors />
-        <Routes>
+    <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
+      <AuthProvider>
+        <WorkspaceProvider>
+          <Router>
+            <Toaster position="top-right" richColors />
+          <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Landing />} />
           <Route path="/login" element={<Login />} />
@@ -74,6 +78,7 @@ function App() {
       </Router>
       </WorkspaceProvider>
     </AuthProvider>
+    </GoogleOAuthProvider>
   );
 }
 

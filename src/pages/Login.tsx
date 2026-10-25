@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Mail, Lock, User, Briefcase, ArrowRight, Sparkles, CheckCircle2, ShieldCheck, KeyRound } from 'lucide-react';
 import { toast } from 'sonner';
+import { GoogleLogin } from '@react-oauth/google';
 import { useAuth } from '../context/AuthContext';
 import { IMAGES } from '../constants';
 
@@ -13,7 +14,7 @@ export default function Login() {
   const [role, setRole] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const { login, register } = useAuth();
+  const { login, register, loginWithGoogle } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -49,6 +50,28 @@ export default function Login() {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleGoogleSuccess = async (credentialResponse: any) => {
+    if (!credentialResponse?.credential) {
+      toast.error('Google sign-in did not return a valid credential token.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      await loginWithGoogle(credentialResponse.credential);
+      toast.success('Signed in with Google successfully.');
+      navigate(from, { replace: true });
+    } catch (err: any) {
+      toast.error(err.message || 'Google authentication failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleGoogleError = () => {
+    toast.error('Google Authentication was cancelled or failed.');
   };
 
   return (
@@ -202,6 +225,31 @@ export default function Login() {
               <ArrowRight size={15} />
             </button>
           </form>
+
+          {/* OAuth Divider */}
+          <div className="relative my-5">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center text-xs">
+              <span className="bg-slate-50 px-2 text-slate-400 font-semibold uppercase tracking-wider text-[10px]">
+                Or continue with
+              </span>
+            </div>
+          </div>
+
+          {/* Google OAuth Button */}
+          <div className="flex justify-center w-full min-h-[44px]">
+            <GoogleLogin
+              onSuccess={handleGoogleSuccess}
+              onError={handleGoogleError}
+              shape="rectangular"
+              theme="outline"
+              size="large"
+              width="380"
+              text={isSignUp ? 'signup_with' : 'signin_with'}
+            />
+          </div>
 
           <div className="mt-8 pt-6 border-t border-slate-200/80 text-center">
             <p className="text-xs text-slate-500 font-medium">

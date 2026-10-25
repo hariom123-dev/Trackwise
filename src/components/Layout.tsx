@@ -142,24 +142,26 @@ export default function Layout({ children }: LayoutProps) {
 
   const quickActions = [
     { icon: Database, label: 'Data Lab', desc: 'Manage datasets', color: 'bg-indigo-600', path: '/data' },
-    { icon: TrendingUp, label: 'ML Models', desc: 'Predictive tools', color: 'bg-emerald-600', path: '/data' },
-    { icon: FileText, label: 'Reports', desc: 'Executive analytics', color: 'bg-blue-600', path: '/dashboard' },
+    { icon: TrendingUp, label: 'ML Models', desc: 'Predictive tools', color: 'bg-emerald-600', path: '/data?tab=forecast' },
+    { icon: FileText, label: 'Reports', desc: 'Executive analytics', color: 'bg-blue-600', path: '/dashboard?action=export' },
     { icon: BarChart, label: 'Visualizer', desc: 'Dynamic charts', color: 'bg-purple-600', path: '/dashboard' },
     { icon: Briefcase, label: 'Intelligence', desc: 'Market signals', color: 'bg-amber-600', path: '/insights' },
     { icon: Search, label: 'Discovery', desc: 'Explore trends', color: 'bg-rose-600', path: '/insights' },
   ];
 
+  const currentPlan = (user?.plan_id || user?.planId || 'free').toLowerCase();
+  const isFreePlan = currentPlan === 'free';
   const planName = 
-    user?.planId === 'enterprise' 
+    currentPlan === 'enterprise' 
       ? 'Enterprise Plan Active' 
-      : user?.planId === 'professional' 
+      : currentPlan === 'professional' 
       ? 'Professional Plan Active' 
       : 'Free Trial Active';
 
   const planBadgeColor = 
-    user?.planId === 'enterprise' 
+    currentPlan === 'enterprise' 
       ? 'text-emerald-400' 
-      : user?.planId === 'professional' 
+      : currentPlan === 'professional' 
       ? 'text-indigo-300' 
       : 'text-amber-400';
 
@@ -252,15 +254,21 @@ export default function Layout({ children }: LayoutProps) {
             <Sparkles size={12} /> {planName}
           </div>
           <p className="text-xs text-slate-300 leading-relaxed font-medium mb-3">
-            {user?.planId === 'enterprise' 
+            {currentPlan === 'enterprise' 
               ? 'Dedicated ML throughput & unlimited ingestion enabled.' 
-              : 'Continuous predictive business forecasting active.'}
+              : currentPlan === 'professional'
+              ? 'Continuous predictive business forecasting active.'
+              : 'Free trial active. Upgrade to unlock unlimited AI models & PDF exports.'}
           </p>
           <Link 
             to="/subscription" 
-            className="inline-flex items-center gap-1.5 text-xs font-semibold text-white bg-white/10 hover:bg-white/20 px-3 py-1.5 rounded-lg backdrop-blur-2xs transition-colors"
+            className={`inline-flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-lg transition-all ${
+              isFreePlan
+                ? 'bg-amber-400 text-slate-950 hover:bg-amber-300 shadow-sm'
+                : 'text-white bg-white/10 hover:bg-white/20 backdrop-blur-2xs'
+            }`}
           >
-            Manage Plan <ArrowRight size={12} />
+            <span>{isFreePlan ? 'Upgrade Now' : 'Manage Plan'}</span> <ArrowRight size={12} />
           </Link>
         </div>
 

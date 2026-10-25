@@ -23,8 +23,21 @@ export interface User {
     status: string;
   }>;
   planId: string;
+  plan_id?: string;
   planInterval: string;
+  plan_interval?: string;
   createdAt?: string;
+}
+
+function normalizeUser(rawUser: any): User {
+  if (!rawUser) return rawUser;
+  return {
+    ...rawUser,
+    planId: rawUser.planId || rawUser.plan_id || 'free',
+    plan_id: rawUser.plan_id || rawUser.planId || 'free',
+    planInterval: rawUser.planInterval || rawUser.plan_interval || 'monthly',
+    plan_interval: rawUser.plan_interval || rawUser.planInterval || 'monthly',
+  };
 }
 
 interface AuthContextType {
@@ -32,6 +45,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<User>;
+  loginWithGoogle: (credential: string) => Promise<User>;
   register: (name: string, email: string, password: string, role?: string) => Promise<User>;
   logout: () => void;
   refreshUser: () => Promise<User | null>;
@@ -46,7 +60,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const saved = localStorage.getItem('trackwise_user');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        return normalizeUser(JSON.parse(saved));
       } catch {
         return null;
       }
@@ -61,9 +75,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storedToken = localStorage.getItem('trackwise_token');
       if (storedToken) {
         try {
-          const res = await apiFetch<{ user: User }>('/api/auth/me');
-          setUser(res.user);
-          localStorage.setItem('trackwise_user', JSON.stringify(res.user));
+          const res = await apiFetch<{ user: any }>('/api/auth/me');
+          const normalized = normalizeUser(res.user);
+          setUser(normalized);
+          localStorage.setItem('trackwise_user', JSON.stringify(normalized));
         } catch (error) {
           console.warn('Session expired or invalid, logging out:', error);
           logout();
@@ -83,29 +98,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string): Promise<User> => {
-    const res = await apiFetch<{ token: string; user: User }>('/api/auth/login', {
+    const res = await apiFetch<{ token: string; user: any }>('/api/auth/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
 
+    const normalized = normalizeUser(res.user);
     localStorage.setItem('trackwise_token', res.token);
-    localStorage.setItem('trackwise_user', JSON.stringify(res.user));
+    localStorage.setItem('trackwise_user', JSON.stringify(normalized));
     setToken(res.token);
-    setUser(res.user);
-    return res.user;
+    setUser(normalized);
+    return normalized;
+  };
+
+  const loginWithGoogle = async (credential: string): Promise<User> => {
+    const res = await apiFetch<{ token: string; user: any }>('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    });
+
+    const normalized = normalizeUser(res.user);
+    localStorage.setItem('trackwise_token', res.token);
+    localStorage.setItem('trackwise_user', JSON.stringify(normalized));
+    setToken(res.token);
+    setUser(normalized);
+    return normalized;
   };
 
   const register = async (name: string, email: string, password: string, role?: string): Promise<User> => {
-    const res = await apiFetch<{ token: string; user: User }>('/api/auth/register', {
+    const res = await apiFetch<{ token: string; user: any }>('/api/auth/register', {
       method: 'POST',
       body: JSON.stringify({ name, email, password, role }),
     });
 
+    const normalized = normalizeUser(res.user);
     localStorage.setItem('trackwise_token', res.token);
-    localStorage.setItem('trackwise_user', JSON.stringify(res.user));
+    localStorage.setItem('trackwise_user', JSON.stringify(normalized));
     setToken(res.token);
-    setUser(res.user);
-    return res.user;
+    setUser(normalized);
+    return normalized;
   };
 
   const logout = () => {
@@ -117,10 +148,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = async (): Promise<User | null> => {
     try {
-      const res = await apiFetch<{ user: User }>('/api/auth/me');
-      setUser(res.user);
-      localStorage.setItem('trackwise_user', JSON.stringify(res.user));
-      return res.user;
+      const res = await apiFetch<{ user: any }>('/api/auth/me');
+      const normalized = normalizeUser(res.user);
+      setUser(normalized);
+      localStorage.setItem('trackwise_user', JSON.stringify(normalized));
+      return normalized;
     } catch {
       return null;
     }
@@ -129,7 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateUserState = (updated: Partial<User>) => {
     setUser((prev) => {
       if (!prev) return null;
-      const next = { ...prev, ...updated };
+      const next = normalizeUser({ ...prev, ...updated });
       localStorage.setItem('trackwise_user', JSON.stringify(next));
       return next;
     });
@@ -142,6 +174,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         token,
         loading,
         login,
+        loginWithGoogle,
         register,
         logout,
         refreshUser,

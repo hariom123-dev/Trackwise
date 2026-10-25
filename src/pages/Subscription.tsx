@@ -247,10 +247,31 @@ export default function Subscription() {
         </div>
       )}
 
+      {/* Free Plan Active Status Banner */}
+      {((user?.plan_id || user?.planId || 'free').toLowerCase() === 'free') && (
+        <div className="max-w-4xl mx-auto p-4 rounded-2xl bg-amber-50/90 border border-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-900">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-xl bg-amber-100 text-amber-700">
+              <Sparkles size={18} />
+            </div>
+            <div>
+              <p className="text-xs font-bold">Free Trial Tier Active</p>
+              <p className="text-[11px] text-amber-700 font-medium">
+                You are currently on the complimentary 14-day evaluation tier with standard telemetry throughput.
+              </p>
+            </div>
+          </div>
+          <span className="px-3 py-1 rounded-full bg-amber-200/60 text-amber-800 text-[10px] font-black uppercase tracking-wider shrink-0">
+            Free Trial
+          </span>
+        </div>
+      )}
+
       {/* Pricing Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-4xl mx-auto pt-4">
         {plans.map((plan) => {
-          const isCurrentPlan = user?.planId?.toLowerCase() === plan.id.toLowerCase();
+          const activePlanId = (user?.plan_id || user?.planId || 'free').toLowerCase();
+          const isCurrentPlan = activePlanId === plan.id.toLowerCase();
           const price = plan.prices[interval];
 
           return (
@@ -347,7 +368,10 @@ export default function Subscription() {
                       <span>Opening Checkout...</span>
                     </>
                   ) : isCurrentPlan ? (
-                    <span>Active Subscription</span>
+                    <span className="flex items-center gap-1.5 font-bold text-slate-600">
+                      <Check size={15} className="text-emerald-600" />
+                      Current Active Plan
+                    </span>
                   ) : (
                     <span>Subscribe to {plan.name}</span>
                   )}

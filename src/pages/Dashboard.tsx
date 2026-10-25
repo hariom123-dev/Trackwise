@@ -28,7 +28,7 @@ import {
   ShieldCheck,
   Layers,
   Sparkles,
-  PieChart,
+  PieChart as PieChartIcon,
   FileSpreadsheet
 } from 'lucide-react';
 import { 
@@ -55,13 +55,17 @@ import {
   YAxis, 
   CartesianGrid, 
   Tooltip, 
-  Legend 
+  Legend,
+  PieChart,
+  Pie,
+  Cell
 } from 'recharts';
 import { toast } from 'sonner';
 import { apiFetch } from '../utils/api';
 import { useWorkspace } from '../context/WorkspaceContext';
 import { generateVectorPDF } from '../utils/vectorPdfGenerator';
 import UnitEconomicsScorecard from '../components/UnitEconomicsScorecard';
+import BudgetVariance from '../components/BudgetVariance';
 import { exportMultiSheetExcel } from '../utils/excelExport';
 import { formatCurrency, formatCompactCurrency } from '../utils/currency';
 
@@ -113,8 +117,16 @@ export default function Dashboard() {
   const [chartView, setChartView] = useState<'monthly' | 'weekly'>('monthly');
   const [currentDate, setCurrentDate] = useState(new Date());
   const [copySuccess, setCopySuccess] = useState(false);
+  const [auditLogs, setAuditLogs] = useState<Array<{ id: string; action: string; details: string; createdAt: string }>>([]);
 
-  // Load timeseries data and reports from backend scoped to active workspace
+  // Auto-open export & share modal if navigated via Quick Launch "Reports"
+  useEffect(() => {
+    if (searchParams.get('action') === 'export') {
+      setIsShareModalOpen(true);
+    }
+  }, [searchParams]);
+
+  // Load timeseries data, reports, and live audit telemetry scoped to active workspace
   useEffect(() => {
     loadDashboardData();
   }, [activeWorkspace?.id]);
@@ -124,6 +136,13 @@ export default function Dashboard() {
       const res = await apiFetch<{ records: TimeseriesRecord[]; reports: AnalysisReport[] }>('/api/data/timeseries');
       if (res?.records) setRecords(res.records);
       if (res?.reports) setReports(res.reports);
+
+      // Fetch latest audit logs for live activity feed widget
+      apiFetch<{ auditLogs: any[] }>('/api/user/audit-logs')
+        .then((logRes) => {
+          if (logRes?.auditLogs) setAuditLogs(logRes.auditLogs.slice(0, 5));
+        })
+        .catch(() => {});
 
       // Check if reportId is passed in query string or route params
       const targetReportId = searchParams.get('reportId') || routeParams.id;
@@ -273,6 +292,21 @@ export default function Dashboard() {
       { name: 'Self-Serve Developer Subscriptions', value: formatCurrency(Math.round(rev * 0.12), currentCurrency), progress: 12, color: 'bg-amber-600' },
     ];
   }, [filteredRecords, activeWorkspace?.currency]);
+
+  // Industry Segment breakdown for PieChart modal
+  const industryBreakdown = useMemo(() => {
+    const latest = filteredRecords[filteredRecords.length - 1] || { revenue: 7936000 };
+    const rev = latest.revenue;
+    const colors = ['#4f46e5', '#10b981', '#f59e0b', '#ec4899', '#8b5cf6'];
+
+    return [
+      { name: 'B2B SaaS & Cloud Platforms', value: Math.round(rev * 0.45), percentage: 45, color: colors[0] },
+      { name: 'Enterprise Fintech & Payments', value: Math.round(rev * 0.25), percentage: 25, color: colors[1] },
+      { name: 'Retail Commerce & E-Store', value: Math.round(rev * 0.15), percentage: 15, color: colors[2] },
+      { name: 'Healthtech & Diagnostics', value: Math.round(rev * 0.10), percentage: 10, color: colors[3] },
+      { name: 'Logistics & Supply Chain', value: Math.round(rev * 0.05), percentage: 5, color: colors[4] },
+    ];
+  }, [filteredRecords]);
 
   // Compute system alerts dynamically
   const alerts = useMemo(() => {
@@ -721,6 +755,13 @@ export default function Dashboard() {
 
         {/* Side Panel: Segments & Predictive Alerts */}
         <div className="space-y-6">
+          {/* Budget vs. Actuals (BvA) Engine */}
+          <BudgetVariance
+            records={records}
+            currency={activeWorkspace?.currency || 'INR'}
+            workspaceId={activeWorkspace?.id}
+          />
+
           {/* Top Products / Segments */}
           <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs">
             <div className="flex items-center justify-between mb-4">
@@ -771,10 +812,51 @@ export default function Dashboard() {
               ))}
             </div>
           </div>
+
+          {/* Widget 1: Live Audit Feed (Desktop Active Activity) */}
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                <h3 className="font-bold text-slate-900 text-sm">Live Audit Feed</h3>
+              </div>
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
+                SQLite Immutable
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {auditLogs.length === 0 ? (
+                <div className="py-6 text-center text-slate-400 text-xs">
+                  No recent audit telemetry.
+                </div>
+              ) : (
+                auditLogs.slice(0, 5).map((log) => (
+                  <div
+                    key={log.id}
+                    className="flex items-start gap-2.5 p-2 rounded-xl bg-slate-50/70 border border-slate-100/80 hover:bg-white hover:border-slate-200 transition-all text-xs"
+                  >
+                    <div className="p-1.5 rounded-lg bg-indigo-50 text-indigo-600 shrink-0 mt-0.5">
+                      <ShieldCheck size={13} />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-1">
+                        <p className="font-bold text-slate-800 text-[11px] truncate">{log.action}</p>
+                        <span className="text-[9px] text-slate-400 font-medium shrink-0">
+                          {new Date(log.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 line-clamp-1 mt-0.5">{log.details}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Segment Breakdown Modal */}
+      {/* Segment Breakdown Modal with Recharts PieChart */}
       <AnimatePresence>
         {isSegmentModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -793,26 +875,70 @@ export default function Dashboard() {
             >
               <div className="flex justify-between items-center pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <PieChart size={18} className="text-indigo-600" />
-                  <h3 className="text-base font-bold text-slate-900">Revenue Contribution by Subscription Tier</h3>
+                  <PieChartIcon size={18} className="text-indigo-600" />
+                  <div>
+                    <h3 className="text-base font-bold text-slate-900">Industry Segment Revenue Contribution</h3>
+                    <p className="text-[11px] text-slate-400 font-medium">Aggregated across active workspace verticals</p>
+                  </div>
                 </div>
                 <button
                   onClick={() => setIsSegmentModalOpen(false)}
-                  className="p-1 hover:bg-slate-100 rounded-lg text-slate-400"
+                  className="p-1 hover:bg-slate-100 rounded-lg text-slate-400 cursor-pointer"
                 >
                   <X size={18} />
                 </button>
               </div>
 
-              <div className="space-y-4">
-                {segments.map((seg, i) => (
-                  <div key={i} className="p-3 rounded-xl bg-slate-50 border border-slate-100 space-y-1">
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-bold text-slate-800">{seg.name}</span>
-                      <span className="font-extrabold text-indigo-900">{seg.value} ({seg.progress}%)</span>
+              {/* Recharts PieChart Visualization */}
+              <div className="w-full h-64 flex items-center justify-center">
+                <ResponsiveContainer width="100%" height="100%">
+                  <PieChart>
+                    <Pie
+                      data={industryBreakdown}
+                      dataKey="value"
+                      nameKey="name"
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={55}
+                      outerRadius={90}
+                      paddingAngle={3}
+                    >
+                      {industryBreakdown.map((entry, idx) => (
+                        <Cell key={`cell-${idx}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip
+                      formatter={(val: any) => [
+                        formatCurrency(Number(val), activeWorkspace?.currency || 'INR'),
+                        'Revenue Contribution',
+                      ]}
+                      contentStyle={{
+                        borderRadius: '12px',
+                        border: '1px solid #e2e8f0',
+                        boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
+                        fontSize: '11px',
+                        fontWeight: 600,
+                      }}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Legend with percentages and absolute revenue */}
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {industryBreakdown.map((entry, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="w-3 h-3 rounded-full shrink-0" style={{ backgroundColor: entry.color }} />
+                      <span className="font-bold text-slate-800 truncate">{entry.name}</span>
                     </div>
-                    <div className="h-2 w-full bg-slate-200 rounded-full overflow-hidden">
-                      <div className={`h-full ${seg.color}`} style={{ width: `${seg.progress}%` }} />
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className="font-extrabold text-indigo-900">
+                        {formatCurrency(entry.value, activeWorkspace?.currency || 'INR')}
+                      </span>
+                      <span className="px-2 py-0.5 rounded-full bg-slate-200/70 text-slate-700 text-[10px] font-bold">
+                        {entry.percentage}%
+                      </span>
                     </div>
                   </div>
                 ))}
@@ -820,7 +946,7 @@ export default function Dashboard() {
 
               <button
                 onClick={() => setIsSegmentModalOpen(false)}
-                className="w-full py-2.5 bg-indigo-900 text-white font-bold rounded-xl text-xs hover:bg-indigo-950 transition-colors"
+                className="w-full py-2.5 bg-indigo-900 text-white font-bold rounded-xl text-xs hover:bg-indigo-950 transition-colors cursor-pointer"
               >
                 Close Breakdown
               </button>

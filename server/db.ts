@@ -145,6 +145,27 @@ export function initDatabase() {
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS budgets (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      period TEXT NOT NULL,
+      revenue_target REAL NOT NULL,
+      expense_budget REAL NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS api_keys (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      key_hash TEXT NOT NULL,
+      hint TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_timeseries_user_period ON timeseries_records(user_id, period);
     CREATE INDEX IF NOT EXISTS idx_reports_user ON analysis_reports(user_id);
     CREATE INDEX IF NOT EXISTS idx_insights_user ON insights(user_id);
@@ -153,6 +174,9 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_ws_members_ws ON workspace_members(workspace_id);
     CREATE INDEX IF NOT EXISTS idx_ws_members_user ON workspace_members(user_id);
+    CREATE INDEX IF NOT EXISTS idx_budgets_ws_period ON budgets(workspace_id, period);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_ws ON api_keys(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_api_keys_user ON api_keys(user_id);
   `);
 
   // Ensure workspace_id column exists on isolated tables
@@ -980,6 +1004,37 @@ function seedDemoData() {
 
     console.log("🌱 Seeded initial AI copilot message for demo user.");
   }
+
+  // Seed 3 months of historical budgets for primary demo workspace (Kinetic Global Analytics)
+  const budgetCount = (db.prepare("SELECT COUNT(*) as count FROM budgets WHERE workspace_id = ?").get(defaultWsId) as any).count;
+  if (budgetCount === 0) {
+    const historicalBudgets = [
+      { period: "2026-02", revenueTarget: 7000000, expenseBudget: 4200000 },
+      { period: "2026-03", revenueTarget: 7500000, expenseBudget: 4300000 },
+      { period: "2026-04", revenueTarget: 8000000, expenseBudget: 4400000 },
+    ];
+    const insertBudget = db.prepare(`
+      INSERT INTO budgets (id, workspace_id, period, revenue_target, expense_budget, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    for (const b of historicalBudgets) {
+      insertBudget.run("bg_" + crypto.randomUUID(), defaultWsId, b.period, b.revenueTarget, b.expenseBudget, new Date().toISOString());
+    }
+    console.log("🌱 Seeded 3 months historical budgets for Kinetic SaaS Cloud.");
+  }
+
+  // Seed demo API key in api_keys table if not present
+  const defaultApiKey = "tw_live_9f83b2a1c0d4e5f6a7b8c9d0e1f2a3b4";
+  const existingApiKeyRow = db.prepare("SELECT id FROM api_keys WHERE user_id = ?").get(demoUserId);
+  if (!existingApiKeyRow) {
+    const keyHash = bcrypt.hashSync(defaultApiKey, 10);
+    const hint = "tw_live_..." + defaultApiKey.slice(-4);
+    db.prepare(`
+      INSERT INTO api_keys (id, workspace_id, user_id, key_hash, hint, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run("apk_demo_primary", defaultWsId, demoUserId, keyHash, hint, new Date().toISOString());
+    console.log("🌱 Seeded primary API key for demo user in api_keys table.");
+  }
 }
 
 // ==========================================
@@ -1188,3 +1243,141 @@ export function addWorkspaceMember(
   `).run(id, workspaceId, userId, role, now);
   return id;
 }
+
+// ==========================================
+// Budgets & API Keys Helpers (Phase 5)
+// ==========================================
+export interface BudgetRow {
+  id: string;
+  workspaceId: string;
+  period: string;
+  revenueTarget: number;
+  expenseBudget: number;
+  createdAt: string;
+}
+
+export interface ApiKeyRecord {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  keyHash: string;
+  hint: string;
+  createdAt: string;
+}
+
+export function getBudgets(workspaceId: string): BudgetRow[] {
+  const rows = db
+    .prepare(`
+      SELECT id, workspace_id as workspaceId, period, revenue_target as revenueTarget, expense_budget as expenseBudget, created_at as createdAt
+      FROM budgets
+      WHERE workspace_id = ?
+      ORDER BY period ASC
+    `)
+    .all(workspaceId) as any[];
+  return rows;
+}
+
+export function getBudgetByPeriod(workspaceId: string, period: string): BudgetRow | null {
+  const row = db
+    .prepare(`
+      SELECT id, workspace_id as workspaceId, period, revenue_target as revenueTarget, expense_budget as expenseBudget, created_at as createdAt
+      FROM budgets
+      WHERE workspace_id = ? AND period = ?
+    `)
+    .get(workspaceId, period) as any;
+  return row || null;
+}
+
+export function upsertBudget(
+  workspaceId: string,
+  period: string,
+  revenueTarget: number,
+  expenseBudget: number
+): BudgetRow {
+  const existing = getBudgetByPeriod(workspaceId, period);
+  const now = new Date().toISOString();
+  if (existing) {
+    db.prepare(`
+      UPDATE budgets
+      SET revenue_target = ?, expense_budget = ?
+      WHERE id = ?
+    `).run(revenueTarget, expenseBudget, existing.id);
+    return {
+      ...existing,
+      revenueTarget,
+      expenseBudget,
+    };
+  } else {
+    const id = "bg_" + crypto.randomUUID();
+    db.prepare(`
+      INSERT INTO budgets (id, workspace_id, period, revenue_target, expense_budget, created_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, workspaceId, period, revenueTarget, expenseBudget, now);
+    return {
+      id,
+      workspaceId,
+      period,
+      revenueTarget,
+      expenseBudget,
+      createdAt: now,
+    };
+  }
+}
+
+export function createApiKey(
+  workspaceId: string,
+  userId: string,
+  rawKey?: string
+): { id: string; rawKey: string; hint: string } {
+  const generatedKey = rawKey || "tw_live_" + crypto.randomBytes(16).toString("hex");
+  const keyHash = bcrypt.hashSync(generatedKey, 10);
+  const hint = "tw_live_..." + generatedKey.slice(-4);
+  const id = "apk_" + crypto.randomUUID();
+  const now = new Date().toISOString();
+
+  db.prepare(`
+    INSERT INTO api_keys (id, workspace_id, user_id, key_hash, hint, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
+  `).run(id, workspaceId, userId, keyHash, hint, now);
+
+  // Sync users table api_key
+  db.prepare("UPDATE users SET api_key = ? WHERE id = ?").run(generatedKey, userId);
+
+  return {
+    id,
+    rawKey: generatedKey,
+    hint,
+  };
+}
+
+export function verifyApiKey(rawKey: string): { apiKeyId: string; workspaceId: string; userId: string } | null {
+  if (!rawKey || typeof rawKey !== "string") return null;
+
+  // Retrieve candidate API keys
+  const keys = db.prepare("SELECT * FROM api_keys").all() as any[];
+  for (const k of keys) {
+    if (bcrypt.compareSync(rawKey, k.key_hash)) {
+      return {
+        apiKeyId: k.id,
+        workspaceId: k.workspace_id,
+        userId: k.user_id,
+      };
+    }
+  }
+
+  // Fallback to users table for backwards-compatibility & auto-migrate to api_keys
+  const user = db.prepare("SELECT id, api_key FROM users WHERE api_key = ?").get(rawKey) as any;
+  if (user) {
+    const ws = db.prepare("SELECT id FROM workspaces WHERE user_id = ? ORDER BY created_at ASC LIMIT 1").get(user.id) as any;
+    const wsId = ws ? ws.id : "ws_kinetic_analytics";
+    const res = createApiKey(wsId, user.id, rawKey);
+    return {
+      apiKeyId: res.id,
+      workspaceId: wsId,
+      userId: user.id,
+    };
+  }
+
+  return null;
+}
+
