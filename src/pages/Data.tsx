@@ -12,14 +12,18 @@ import {
   UploadCloud, 
   Sparkles, 
   Clock, 
-  RefreshCw,
-  Download,
-  Table,
-  Check,
-  Calendar,
-  Sliders,
-  FileSpreadsheet,
-  Layers
+  RefreshCw, 
+  Download, 
+  Table, 
+  Check, 
+  Calendar, 
+  Sliders, 
+  FileSpreadsheet, 
+  Layers,
+  Zap,
+  ShieldCheck,
+  CreditCard,
+  Building2
 } from 'lucide-react';
 import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import { motion, AnimatePresence } from 'motion/react';
@@ -31,6 +35,7 @@ import { generateVectorPDF } from '../utils/vectorPdfGenerator';
 import UnitEconomicsScorecard from '../components/UnitEconomicsScorecard';
 import WhatIfScenarioSimulator from '../components/WhatIfScenarioSimulator';
 import { exportMultiSheetExcel } from '../utils/excelExport';
+import { formatCurrency, formatCompactCurrency } from '../utils/currency';
 
 export interface BusinessData {
   revenue: number;
@@ -74,13 +79,54 @@ export default function Data() {
   const [savingRows, setSavingRows] = useState(false);
 
   const [formData, setFormData] = useState<BusinessData>({
-    revenue: 99200,
-    expenses: 56200,
-    customers: 2450,
-    churnRate: 1.5,
-    industry: 'SaaS',
-    goals: 'Scale to $150k MRR and establish European enterprise presence',
+    revenue: 8000000,
+    expenses: 4500000,
+    customers: 420,
+    churnRate: 2.1,
+    industry: 'B2B SaaS',
+    goals: 'Scale ARR to ₹12 Cr and expand enterprise tier adoption',
   });
+
+  // B2B Financial Integrations State
+  const [integrationsStatus, setIntegrationsStatus] = useState<
+    Record<string, { status: 'connected' | 'not_connected'; syncStatus: string; lastSync?: string }>
+  >({
+    Razorpay: { status: 'not_connected', syncStatus: 'Not Connected' },
+    Stripe: { status: 'connected', syncStatus: 'Active - Syncing daily', lastSync: '10 mins ago' },
+    'Zoho Books': { status: 'not_connected', syncStatus: 'Not Connected' },
+  });
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+
+  const handleConnectIntegration = async (provider: string) => {
+    setConnectingProvider(provider);
+    try {
+      // Simulated OAuth handshake delay
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+
+      const res = await apiFetch<{ success: boolean; message: string; integration: any }>(
+        '/api/integrations/connect',
+        {
+          method: 'POST',
+          body: JSON.stringify({ provider }),
+        }
+      );
+
+      setIntegrationsStatus((prev) => ({
+        ...prev,
+        [provider]: {
+          status: 'connected',
+          syncStatus: 'Active - Syncing daily',
+          lastSync: 'Just now',
+        },
+      }));
+
+      toast.success(res?.message || `${provider} connected successfully! Telemetry syncing daily.`);
+    } catch (err: any) {
+      toast.error(err.message || `Failed to authenticate with ${provider}.`);
+    } finally {
+      setConnectingProvider(null);
+    }
+  };
 
   // Load existing records from SQLite on component mount & workspace switch
   useEffect(() => {
@@ -112,37 +158,37 @@ export default function Data() {
 
   const loadSampleData = () => {
     setFormData({
-      revenue: 125000,
-      expenses: 82000,
-      customers: 4500,
+      revenue: 8500000,
+      expenses: 4800000,
+      customers: 480,
       churnRate: 1.8,
-      industry: 'Fintech',
-      goals: 'Expand to European market and achieve 25% YoY growth',
+      industry: 'B2B SaaS',
+      goals: 'Scale ARR to ₹12 Cr and expand enterprise tier adoption',
     });
-    toast.info('Sample business matrix loaded.');
+    toast.info('Sample enterprise SaaS metrics loaded.');
   };
 
-  // Download a pre-formatted valid 6-month CSV template
+  // Download a pre-formatted valid 6-month SaaS metrics CSV template
   const handleDownloadTemplate = () => {
     const csvContent =
       'period,revenue,expenses,customers,churnRate,industry,goals\n' +
-      '2025-11,72500,45800,1640,1.9,SaaS,Scale MRR to $150k\n' +
-      '2025-12,79000,48000,1800,1.9,SaaS,Scale MRR to $150k\n' +
-      '2026-01,84500,50500,1980,1.8,SaaS,Scale MRR to $150k\n' +
-      '2026-02,89000,52000,2120,1.7,SaaS,Scale MRR to $150k\n' +
-      '2026-03,94500,54500,2290,1.6,SaaS,Scale MRR to $150k\n' +
-      '2026-04,99200,56200,2450,1.5,SaaS,Scale MRR to $150k\n';
+      '2025-11,6200000,3800000,340,2.3,B2B SaaS,Scale ARR to ₹10 Cr\n' +
+      '2025-12,6600000,4000000,360,2.2,B2B SaaS,Scale ARR to ₹10 Cr\n' +
+      '2026-01,7100000,4200000,380,2.1,B2B SaaS,Scale ARR to ₹12 Cr\n' +
+      '2026-02,7400000,4300000,395,2.0,B2B SaaS,Scale ARR to ₹12 Cr\n' +
+      '2026-03,7800000,4400000,410,1.9,B2B SaaS,Scale ARR to ₹12 Cr\n' +
+      '2026-04,8000000,4500000,420,1.8,B2B SaaS,Scale ARR to ₹12 Cr\n';
 
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', 'trackwise_timeseries_template.csv');
+    link.setAttribute('download', 'trackwise_saas_metrics_template.csv');
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-    toast.success('Downloaded sample CSV template.');
+    toast.success('Downloaded sample settlement ledger CSV template.');
   };
 
   // Multi-row file upload using readAsArrayBuffer
@@ -369,7 +415,7 @@ export default function Data() {
         title: `AI Predictive Model & 6-Month Forecast`,
         workspaceName: activeWorkspace?.name || 'Kinetic Global Analytics',
         industry: activeWorkspace?.industry || formData.industry || 'SaaS',
-        currency: activeWorkspace?.currency || 'USD',
+        currency: activeWorkspace?.currency || 'INR',
         metrics: {
           revenue: formData.revenue,
           expenses: formData.expenses,
@@ -411,7 +457,7 @@ export default function Data() {
             Financial Ingestion & Neural Forecasting
           </h1>
           <p className="font-medium text-slate-500 text-xs sm:text-sm">
-            Ingest multi-period spreadsheets, audit unit economics, and stress-test sensitivity scenarios.
+            Ingest multi-period spreadsheets, connect live billing gateways, and stress-test sensitivity scenarios.
           </p>
         </div>
 
@@ -419,11 +465,11 @@ export default function Data() {
           <button
             type="button"
             onClick={handleDownloadTemplate}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
-            title="Download formatted sample CSV template"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
+            title="Download formatted sample SaaS metrics CSV template"
           >
             <Download size={14} className="text-indigo-600" />
-            <span>Sample CSV</span>
+            <span>Sample Sheet</span>
           </button>
 
           {/* Multi-Sheet Excel Export Button */}
@@ -439,7 +485,7 @@ export default function Data() {
 
           <label className="flex items-center gap-1.5 px-4 py-2 bg-indigo-900 border border-indigo-900 rounded-xl text-xs font-bold text-white hover:bg-indigo-950 transition-colors cursor-pointer shadow-xs active:scale-95">
             {fileLoading ? <Loader2 size={14} className="animate-spin" /> : <UploadCloud size={14} />}
-            <span>{fileLoading ? 'Parsing...' : 'Upload CSV / Excel'}</span>
+            <span>{fileLoading ? 'Ingesting Sheet...' : 'Import Sheet'}</span>
             <input
               type="file"
               className="hidden"
@@ -452,11 +498,195 @@ export default function Data() {
           <button
             type="button"
             onClick={handleExportPDF}
-            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs"
+            className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-slate-200/80 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 transition-colors shadow-2xs cursor-pointer"
           >
             <FileText size={14} />
             <span>Export PDF</span>
           </button>
+        </div>
+      </div>
+
+      {/* Connected Financial Integrations Hub */}
+      <div className="bg-white p-5 rounded-2xl border border-slate-200/80 shadow-2xs space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2">
+            <div className="p-2 bg-indigo-50 text-indigo-700 rounded-xl">
+              <Zap size={16} />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-slate-900">Connected B2B Financial Integrations</h2>
+              <p className="text-[11px] text-slate-500 font-medium">
+                Live automated pipelines syncing subscription MRR, payment gateway logs, and operational expenses.
+              </p>
+            </div>
+          </div>
+          <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2.5 py-0.5 rounded-full uppercase tracking-wider self-start sm:self-auto">
+            Zero-Code Sync
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Razorpay Integration Card */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:shadow-xs transition-all flex flex-col justify-between space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#0c2340] text-white flex items-center justify-center font-black text-xs shadow-2xs">
+                    R
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Razorpay</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">India Gateway & Subscriptions</p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200">
+                  Featured (IN)
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Sync recurring mandates, UPI soundboxes, and route payouts directly to TrackWise timeseries.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+              {integrationsStatus['Razorpay']?.status === 'connected' ? (
+                <div className="flex items-center justify-between w-full">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Active - Syncing daily
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {integrationsStatus['Razorpay'].lastSync || 'Just now'}
+                  </span>
+                </div>
+              ) : connectingProvider === 'Razorpay' ? (
+                <button
+                  disabled
+                  className="w-full py-2 px-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold flex items-center justify-center gap-2"
+                >
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Authenticating with Razorpay...</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleConnectIntegration('Razorpay')}
+                  className="w-full py-2 px-3 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Zap size={13} />
+                  <span>Connect Razorpay</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Stripe Integration Card */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:shadow-xs transition-all flex flex-col justify-between space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#635bff] text-white flex items-center justify-center font-black text-xs shadow-2xs">
+                    S
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Stripe</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Global SaaS Invoicing</p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  Global
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Ingest international subscription billing, card renewals, and churn webhooks automatically.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+              {integrationsStatus['Stripe']?.status === 'connected' ? (
+                <div className="flex items-center justify-between w-full">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Active - Syncing daily
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {integrationsStatus['Stripe'].lastSync || '10 mins ago'}
+                  </span>
+                </div>
+              ) : connectingProvider === 'Stripe' ? (
+                <button
+                  disabled
+                  className="w-full py-2 px-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold flex items-center justify-center gap-2"
+                >
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Authenticating with Stripe...</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleConnectIntegration('Stripe')}
+                  className="w-full py-2 px-3 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Zap size={13} />
+                  <span>Connect Stripe</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Zoho Books Integration Card */}
+          <div className="p-4 rounded-xl border border-slate-200 bg-slate-50/50 hover:bg-white hover:shadow-xs transition-all flex flex-col justify-between space-y-3">
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-lg bg-[#e24c4b] text-white flex items-center justify-center font-black text-xs shadow-2xs">
+                    Z
+                  </div>
+                  <div>
+                    <h3 className="text-xs font-bold text-slate-900">Zoho Books</h3>
+                    <p className="text-[10px] text-slate-400 font-medium">Indian Accounting & GST</p>
+                  </div>
+                </div>
+                <span className="text-[9px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  GST Ready
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 leading-relaxed">
+                Reconcile GST e-invoices, operating expense debits, and profit-and-loss balances in real time.
+              </p>
+            </div>
+
+            <div className="pt-2 border-t border-slate-100 flex items-center justify-between gap-2">
+              {integrationsStatus['Zoho Books']?.status === 'connected' ? (
+                <div className="flex items-center justify-between w-full">
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider bg-emerald-50 text-emerald-700 border border-emerald-200">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    Active - Syncing daily
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-medium">
+                    {integrationsStatus['Zoho Books'].lastSync || 'Just now'}
+                  </span>
+                </div>
+              ) : connectingProvider === 'Zoho Books' ? (
+                <button
+                  disabled
+                  className="w-full py-2 px-3 rounded-xl bg-indigo-50 border border-indigo-200 text-indigo-700 text-xs font-bold flex items-center justify-center gap-2"
+                >
+                  <Loader2 size={13} className="animate-spin" />
+                  <span>Authenticating with Zoho Books...</span>
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => handleConnectIntegration('Zoho Books')}
+                  className="w-full py-2 px-3 rounded-xl bg-indigo-900 hover:bg-indigo-950 text-white text-xs font-bold transition-all shadow-2xs flex items-center justify-center gap-1.5 cursor-pointer"
+                >
+                  <Zap size={13} />
+                  <span>Connect Zoho Books</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
@@ -466,6 +696,7 @@ export default function Data() {
         expenses={formData.expenses}
         customers={formData.customers}
         churnRate={formData.churnRate}
+        currency={activeWorkspace?.currency || 'INR'}
       />
 
       {/* Parsed Dataset Preview Table */}
@@ -513,22 +744,22 @@ export default function Data() {
               <thead className="bg-slate-50 text-[10px] font-bold uppercase tracking-wider text-slate-500 border-b border-slate-100">
                 <tr>
                   <th className="py-2.5 px-4">Period</th>
-                  <th className="py-2.5 px-4">Revenue</th>
-                  <th className="py-2.5 px-4">Expenses</th>
-                  <th className="py-2.5 px-4">Customers</th>
-                  <th className="py-2.5 px-4">Churn Rate</th>
-                  <th className="py-2.5 px-4">Industry</th>
+                  <th className="py-2.5 px-4">Monthly Recurring Revenue (MRR)</th>
+                  <th className="py-2.5 px-4">Operating Expenses</th>
+                  <th className="py-2.5 px-4">Subscribers</th>
+                  <th className="py-2.5 px-4">Churn %</th>
+                  <th className="py-2.5 px-4">Industry Vertical</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-medium">
                 {parsedRows.map((row, idx) => (
                   <tr key={idx} className="hover:bg-slate-50/80">
                     <td className="py-2 px-4 font-bold text-slate-900">{row.period}</td>
-                    <td className="py-2 px-4 text-emerald-600 font-semibold">${row.revenue.toLocaleString()}</td>
-                    <td className="py-2 px-4 text-slate-600">${row.expenses.toLocaleString()}</td>
+                    <td className="py-2 px-4 text-emerald-600 font-semibold">{formatCurrency(row.revenue, activeWorkspace?.currency || 'INR')}</td>
+                    <td className="py-2 px-4 text-slate-600">{formatCurrency(row.expenses, activeWorkspace?.currency || 'INR')}</td>
                     <td className="py-2 px-4 text-slate-600">{row.customers.toLocaleString()}</td>
                     <td className="py-2 px-4 text-slate-600">{row.churnRate}%</td>
-                    <td className="py-2 px-4 text-slate-500">{row.industry || 'SaaS'}</td>
+                    <td className="py-2 px-4 text-slate-500">{row.industry || 'B2B SaaS'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -600,7 +831,7 @@ export default function Data() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Monthly Revenue ($)
+                    Monthly Recurring Revenue (MRR) (₹)
                   </label>
                   <input
                     type="number"
@@ -614,7 +845,7 @@ export default function Data() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Monthly Expenses ($)
+                    Monthly Operating Expenses (OPEX) (₹)
                   </label>
                   <input
                     type="number"
@@ -631,7 +862,7 @@ export default function Data() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Active Customers
+                    Active Subscribers / Seats
                   </label>
                   <input
                     type="number"
@@ -645,7 +876,7 @@ export default function Data() {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                    Churn Rate (%)
+                    Monthly Churn Rate (%)
                   </label>
                   <input
                     type="number"
@@ -671,17 +902,17 @@ export default function Data() {
                   onChange={handleChange}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-semibold text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-hidden transition-all"
                 >
-                  <option value="SaaS">SaaS / Enterprise Software</option>
-                  <option value="E-commerce">E-commerce & Retail</option>
-                  <option value="Fintech">Fintech & Financial Services</option>
-                  <option value="Healthcare">Healthcare & BioTech</option>
-                  <option value="Real Estate">Real Estate & PropTech</option>
+                  <option value="B2B SaaS">B2B SaaS</option>
+                  <option value="Enterprise Software">Enterprise Software</option>
+                  <option value="Fintech & Payments">Fintech & Payments</option>
+                  <option value="Healthtech / Medtech">Healthtech / Medtech</option>
+                  <option value="E-Commerce & Retail">E-Commerce & Retail</option>
                 </select>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                  Strategic Goals
+                  Strategic SaaS Growth Goals
                 </label>
                 <textarea
                   name="goals"
@@ -689,7 +920,7 @@ export default function Data() {
                   onChange={handleChange}
                   rows={3}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs font-medium text-slate-900 focus:bg-white focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 outline-hidden transition-all resize-none"
-                  placeholder="e.g., Scale to $150k MRR and establish European enterprise presence"
+                  placeholder="e.g., Scale ARR to ₹12 Cr and expand enterprise tier adoption"
                 />
               </div>
 
@@ -805,9 +1036,9 @@ export default function Data() {
                         <TrendingUp size={18} />
                       </div>
                       <div>
-                        <h3 className="text-sm font-bold text-slate-900">6-Month Compound Revenue Projection</h3>
+                        <h3 className="text-sm font-bold text-slate-900">6-Month Compound ARR/MRR Projection</h3>
                         <p className="text-[11px] text-slate-400 font-medium">
-                          Model projection factoring MoM momentum and churn damping
+                          Model projection factoring monthly momentum and subscriber retention dynamics
                         </p>
                       </div>
                     </div>
@@ -833,7 +1064,7 @@ export default function Data() {
                           axisLine={false}
                           tickLine={false}
                           tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
-                          tickFormatter={(value) => `$${value / 1000}k`}
+                          tickFormatter={(value) => formatCompactCurrency(value, activeWorkspace?.currency || 'INR')}
                         />
                         <Tooltip
                           contentStyle={{
@@ -841,7 +1072,10 @@ export default function Data() {
                             border: '1px solid #e2e8f0',
                             boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                           }}
-                          formatter={(value: any) => [`$${Number(value).toLocaleString()}`, 'Projected Revenue']}
+                          formatter={(value: any) => [
+                            formatCurrency(Number(value), activeWorkspace?.currency || 'INR'),
+                            'Projected MRR',
+                          ]}
                         />
                         <Area
                           type="monotone"

@@ -20,6 +20,8 @@ import {
   createWorkspace,
   updateWorkspace,
   deleteWorkspace,
+  getWorkspaceMembers,
+  addWorkspaceMember,
 } from "./server/db.ts";
 
 dotenv.config();
@@ -153,7 +155,7 @@ function getActiveWorkspaceId(req: Request, userId: string): string {
   }
 
   // Fallback: auto-create primary default workspace if none exists
-  const defaultWs = createWorkspace(userId, "Kinetic Global Analytics", "SaaS", "USD");
+  const defaultWs = createWorkspace(userId, "Kinetic Retail Mart", "Kirana / Grocery", "INR");
   return defaultWs.id;
 }
 
@@ -369,7 +371,7 @@ async function startServer() {
       );
 
       // Seed default workspace with isolated baseline time-series and copilot telemetry
-      createWorkspace(userId, `${name.trim()}'s Workspace`, "SaaS", "USD");
+      createWorkspace(userId, `${name.trim()}'s Store`, "Kirana / Grocery", "INR");
 
       const createdUserRow = db.prepare("SELECT * FROM users WHERE id = ?").get(userId);
       const user = sanitizeUser(createdUserRow);
@@ -621,6 +623,182 @@ async function startServer() {
       res.json({ success: true, message: "Workspace deleted successfully." });
     } catch (err: any) {
       res.status(400).json({ error: err.message || "Failed to delete workspace." });
+    }
+  });
+
+  // ==========================================
+  // Workspace Members & Collaboration Routes
+  // ==========================================
+  app.get("/api/workspaces/:id/members", authenticateToken, (req, res) => {
+    try {
+      const workspaceId = req.params.id;
+      const members = getWorkspaceMembers(workspaceId);
+      res.json({ members });
+    } catch (err: any) {
+      console.error("Get workspace members error:", err);
+      res.status(500).json({ error: "Failed to fetch workspace members." });
+    }
+  });
+
+  const inviteMemberSchema = z.object({
+    email: z.string().email("Valid email address is required"),
+    role: z.enum(["admin", "editor", "viewer"]).default("editor"),
+  });
+
+  app.post("/api/workspaces/:id/invites", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const workspaceId = req.params.id;
+      const parsed = inviteMemberSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues[0].message });
+      }
+
+      const { email, role } = parsed.data;
+
+      // Find or create user
+      let invitee = db.prepare("SELECT id, name, email, avatar, role FROM users WHERE email = ?").get(email) as any;
+      if (!invitee) {
+        const newId = "user_" + crypto.randomUUID();
+        const derivedName = email.split("@")[0].replace(/[._-]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+        const defaultAvatar = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80";
+
+        db.prepare(`
+          INSERT INTO users (
+            id, name, email, password_hash, phone, role, timezone, avatar, api_key,
+            two_factor_enabled, notifications_json, integrations_json, plan_id, plan_interval, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          newId,
+          derivedName,
+          email,
+          bcrypt.hashSync("TempPassword123!", 10),
+          "+91 99999 00000",
+          "Financial Analyst",
+          "Asia/Kolkata (IST)",
+          defaultAvatar,
+          "tw_live_" + crypto.randomUUID().replace(/-/g, ""),
+          0,
+          JSON.stringify({ email: true, app: true }),
+          JSON.stringify([]),
+          "free",
+          "monthly",
+          new Date().toISOString()
+        );
+
+        invitee = {
+          id: newId,
+          name: derivedName,
+          email,
+          avatar: defaultAvatar,
+          role: "Financial Analyst",
+        };
+      }
+
+      const memberId = addWorkspaceMember(workspaceId, invitee.id, role);
+
+      logUserActivity(
+        user.id,
+        "WORKSPACE_MEMBER_INVITED",
+        `Invited ${email} to workspace as ${role.toUpperCase()}.`,
+        {
+          title: "Team Member Added",
+          text: `Invited ${email} to workspace as ${role.toUpperCase()}.`,
+          type: "info",
+        }
+      );
+
+      const members = getWorkspaceMembers(workspaceId);
+      const newMember = members.find((m) => m.id === memberId) || {
+        id: memberId,
+        workspaceId,
+        userId: invitee.id,
+        role,
+        joinedAt: new Date().toISOString(),
+        name: invitee.name,
+        email: invitee.email,
+        avatar: invitee.avatar,
+        title: invitee.role || "Financial Analyst",
+      };
+
+      res.status(201).json({
+        success: true,
+        message: `Successfully invited ${email} to workspace as ${role.toUpperCase()}.`,
+        member: newMember,
+      });
+    } catch (err: any) {
+      console.error("Invite member error:", err);
+      res.status(500).json({ error: "Failed to invite team member." });
+    }
+  });
+
+  // ==========================================
+  // Financial Integrations Connect Route
+  // ==========================================
+  const connectIntegrationSchema = z.object({
+    provider: z.string().min(1, "Provider name is required"),
+    credentials: z.record(z.string(), z.any()).optional(),
+  });
+
+  app.post("/api/integrations/connect", authenticateToken, (req, res) => {
+    try {
+      const user = (req as any).user;
+      const parsed = connectIntegrationSchema.safeParse(req.body);
+      if (!parsed.success) {
+        return res.status(400).json({ error: parsed.error.issues[0].message });
+      }
+
+      const { provider } = parsed.data;
+
+      // Update user integrations_json
+      const userRow = db.prepare("SELECT integrations_json FROM users WHERE id = ?").get(user.id) as any;
+      let currentIntegrations: any[] = [];
+      try {
+        if (userRow?.integrations_json) currentIntegrations = JSON.parse(userRow.integrations_json);
+      } catch {}
+
+      const existingIdx = currentIntegrations.findIndex(
+        (item) => item.provider?.toLowerCase() === provider.toLowerCase()
+      );
+      const now = new Date().toISOString();
+      const newIntegration = {
+        provider,
+        status: "active",
+        syncStatus: "Active - Syncing daily",
+        lastSync: now,
+        connectedAt: now,
+      };
+
+      if (existingIdx >= 0) {
+        currentIntegrations[existingIdx] = newIntegration;
+      } else {
+        currentIntegrations.push(newIntegration);
+      }
+
+      db.prepare("UPDATE users SET integrations_json = ? WHERE id = ?").run(
+        JSON.stringify(currentIntegrations),
+        user.id
+      );
+
+      logUserActivity(
+        user.id,
+        "INTEGRATION_CONNECTED",
+        `Connected ${provider} data integration stream. Sync active.`,
+        {
+          title: `Integration Connected: ${provider}`,
+          text: `Connected ${provider} data integration stream. Sync active.`,
+          type: "success",
+        }
+      );
+
+      res.json({
+        success: true,
+        message: `${provider} connected successfully. Automated daily ledger sync is active.`,
+        integration: newIntegration,
+      });
+    } catch (err: any) {
+      console.error("Connect integration error:", err);
+      res.status(500).json({ error: "Failed to connect integration." });
     }
   });
 

@@ -1,18 +1,11 @@
 import React from 'react';
 import { 
-  TrendingUp, 
-  DollarSign, 
-  Users, 
-  Activity, 
-  ShieldCheck, 
-  ArrowUpRight, 
-  HelpCircle,
   Zap,
-  Flame,
-  CheckCircle2,
-  Clock
+  ShieldCheck,
+  TrendingUp,
+  Activity
 } from 'lucide-react';
-import { motion } from 'motion/react';
+import { formatCurrency, formatCompactCurrency } from '../utils/currency';
 
 interface UnitEconomicsScorecardProps {
   revenue: number;
@@ -20,6 +13,7 @@ interface UnitEconomicsScorecardProps {
   customers: number;
   churnRate: number;
   momGrowth?: number;
+  currency?: string;
 }
 
 export default function UnitEconomicsScorecard({
@@ -28,6 +22,7 @@ export default function UnitEconomicsScorecard({
   customers,
   churnRate,
   momGrowth = 5.0,
+  currency = 'INR',
 }: UnitEconomicsScorecardProps) {
   const operatingMargin = revenue > 0 ? ((revenue - expenses) / revenue) * 100 : 0;
   const netSurplus = revenue - expenses;
@@ -46,9 +41,9 @@ export default function UnitEconomicsScorecard({
     : { label: 'Needs Focus (<20%)', color: 'bg-amber-50 text-amber-700 border-amber-200' };
 
   // Estimated CAC modeled as ~22% of annualized ARPU
-  const estimatedCac = Math.max(50, arpu * 12 * 0.22);
+  const estimatedCac = Math.max(500, arpu * 12 * 0.22);
   const ltvCacRatio = (ltv / Math.max(1, estimatedCac)).toFixed(1);
-  const paybackMonths = ((estimatedCac / Math.max(1, arpu * (Math.max(10, operatingMargin) / 100)))).toFixed(1);
+  const paybackMonths = (estimatedCac / Math.max(1, arpu * (Math.max(10, operatingMargin) / 100))).toFixed(1);
 
   return (
     <div className="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-xs space-y-5">
@@ -59,15 +54,15 @@ export default function UnitEconomicsScorecard({
             <Zap size={16} className="text-amber-400" />
           </div>
           <div>
-            <h3 className="text-sm font-bold text-slate-900 tracking-tight">Executive SaaS Unit Economics Scorecard</h3>
+            <h3 className="text-sm font-bold text-slate-900 tracking-tight">Executive SaaS Unit Economics & Efficiency Scorecard</h3>
             <p className="text-[11px] text-slate-400 font-medium">
-              Institutional benchmarks computed dynamically from active telemetry
+              Real-time SaaS operational benchmarks computed dynamically from telemetry
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-2">
-          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Target:</span>
+          <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Benchmark:</span>
           <span className="text-[11px] font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
             Rule of 40 &gt; 40% • LTV:CAC &gt; 3.0x
           </span>
@@ -88,13 +83,13 @@ export default function UnitEconomicsScorecard({
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-2xl font-black text-slate-900">{ruleOf40}%</span>
             <span className="text-xs font-semibold text-emerald-600">
-              +{annualizedGrowth.toFixed(1)}% YoY
+              +{annualizedGrowth.toFixed(1)}% ARR Growth
             </span>
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-slate-100 text-[10px] text-slate-500 space-y-1">
             <div className="flex justify-between">
-              <span>Growth Rate:</span>
+              <span>ARR Growth Rate:</span>
               <strong className="text-slate-800">{annualizedGrowth.toFixed(1)}%</strong>
             </div>
             <div className="flex justify-between">
@@ -104,35 +99,35 @@ export default function UnitEconomicsScorecard({
           </div>
         </div>
 
-        {/* 2. Customer LTV & ARPU */}
+        {/* 2. Customer Lifetime Value (LTV) */}
         <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-white border border-slate-200/80 hover:border-indigo-200 transition-colors shadow-2xs">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Customer Lifetime Value</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Customer LTV</span>
             <span className="px-2 py-0.5 rounded-md text-[10px] font-bold bg-blue-50 text-blue-700 border border-blue-200">
-              ${arpu.toFixed(0)} ARPU
+              ARPU {formatCurrency(arpu, currency)}
             </span>
           </div>
 
           <div className="flex items-baseline gap-2 mb-1">
-            <span className="text-2xl font-black text-slate-900">${Math.round(ltv).toLocaleString()}</span>
-            <span className="text-[11px] font-medium text-slate-400">/ account</span>
+            <span className="text-2xl font-black text-slate-900">{formatCompactCurrency(ltv, currency)}</span>
+            <span className="text-[11px] font-medium text-slate-400">/ subscription</span>
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-slate-100 text-[10px] text-slate-500 space-y-1">
             <div className="flex justify-between">
-              <span>Monthly Churn:</span>
+              <span>Monthly Churn Rate:</span>
               <strong className={churnRate <= 2 ? 'text-emerald-600' : 'text-amber-600'}>
                 {churnRate.toFixed(1)}%
               </strong>
             </div>
             <div className="flex justify-between">
-              <span>Active Accounts:</span>
+              <span>Active Subscriptions:</span>
               <strong className="text-slate-800">{customers.toLocaleString()}</strong>
             </div>
           </div>
         </div>
 
-        {/* 3. LTV : CAC & Payback */}
+        {/* 3. LTV : CAC Multiple & Recovery */}
         <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-white border border-slate-200/80 hover:border-indigo-200 transition-colors shadow-2xs">
           <div className="flex items-center justify-between mb-2">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">LTV : CAC Multiple</span>
@@ -144,26 +139,26 @@ export default function UnitEconomicsScorecard({
           <div className="flex items-baseline gap-2 mb-1">
             <span className="text-2xl font-black text-slate-900">{ltvCacRatio}x</span>
             <span className="text-xs font-semibold text-emerald-600">
-              {Number(ltvCacRatio) >= 3.0 ? 'Optimal' : 'Healthy'}
+              {Number(ltvCacRatio) >= 3.0 ? 'Elite (>3.0x)' : 'Healthy'}
             </span>
           </div>
 
           <div className="mt-3 pt-2.5 border-t border-slate-100 text-[10px] text-slate-500 space-y-1">
             <div className="flex justify-between">
               <span>Estimated CAC:</span>
-              <strong className="text-slate-800">${Math.round(estimatedCac).toLocaleString()}</strong>
+              <strong className="text-slate-800">{formatCompactCurrency(estimatedCac, currency)}</strong>
             </div>
             <div className="flex justify-between">
-              <span>Capital Recovery:</span>
-              <strong className="text-emerald-600">Fast (&lt;12m)</strong>
+              <span>CAC Recovery Period:</span>
+              <strong className="text-emerald-600">&lt;12 Months</strong>
             </div>
           </div>
         </div>
 
-        {/* 4. Net Burn & Runway */}
+        {/* 4. Net Monthly Operating Surplus */}
         <div className="p-4 rounded-2xl bg-gradient-to-b from-slate-50 to-white border border-slate-200/80 hover:border-indigo-200 transition-colors shadow-2xs">
           <div className="flex items-center justify-between mb-2">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Net Monthly Surplus</span>
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">Net Monthly Cash</span>
             <span className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
               netSurplus >= 0 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-rose-50 text-rose-700 border border-rose-200'
             }`}>
@@ -173,7 +168,7 @@ export default function UnitEconomicsScorecard({
 
           <div className="flex items-baseline gap-2 mb-1">
             <span className={`text-2xl font-black ${netSurplus >= 0 ? 'text-emerald-600' : 'text-rose-600'}`}>
-              {netSurplus >= 0 ? '+' : '-'}${Math.abs(netSurplus).toLocaleString()}
+              {netSurplus >= 0 ? '+' : '-'}{formatCompactCurrency(Math.abs(netSurplus), currency)}
             </span>
             <span className="text-[11px] font-medium text-slate-400">/ mo</span>
           </div>
@@ -182,11 +177,11 @@ export default function UnitEconomicsScorecard({
             <div className="flex justify-between">
               <span>Capital Runway:</span>
               <strong className="text-slate-800">
-                {netSurplus >= 0 ? 'Infinite (Cash Flow +)' : '18.4 Months'}
+                {netSurplus >= 0 ? 'Infinite (Cash Flow+)' : '18.4 Months'}
               </strong>
             </div>
             <div className="flex justify-between">
-              <span>Burn Multiple:</span>
+              <span>Net Burn Multiple:</span>
               <strong className="text-emerald-600">0.00x</strong>
             </div>
           </div>

@@ -2,15 +2,10 @@ import React, { useState, useMemo } from 'react';
 import { 
   Sliders, 
   TrendingUp, 
-  DollarSign, 
-  ArrowUpRight, 
   RotateCcw, 
-  Sparkles, 
   Percent, 
   Activity,
-  Layers,
-  ArrowRight,
-  ShieldCheck
+  Layers
 } from 'lucide-react';
 import { 
   ResponsiveContainer, 
@@ -23,7 +18,7 @@ import {
   Tooltip, 
   Legend 
 } from 'recharts';
-import { motion } from 'motion/react';
+import { formatCurrency, formatCompactCurrency } from '../utils/currency';
 
 interface WhatIfScenarioSimulatorProps {
   baseRevenue: number;
@@ -31,6 +26,7 @@ interface WhatIfScenarioSimulatorProps {
   baseCustomers: number;
   baseChurnRate: number;
   baseGrowthRate?: number;
+  currency?: string;
 }
 
 export default function WhatIfScenarioSimulator({
@@ -39,12 +35,13 @@ export default function WhatIfScenarioSimulator({
   baseCustomers,
   baseChurnRate,
   baseGrowthRate = 5.0,
+  currency = 'INR',
 }: WhatIfScenarioSimulatorProps) {
-  // 4 Interactive Sliders
-  const [arpuAdjustment, setArpuAdjustment] = useState<number>(10); // +10% default
-  const [churnReduction, setChurnReduction] = useState<number>(0.5); // -0.5% churn
-  const [growthBoost, setGrowthBoost] = useState<number>(8); // +8% marketing boost
-  const [expenseAdjustment, setExpenseAdjustment] = useState<number>(-5); // -5% overhead
+  // 4 Interactive Sliders for SaaS Financial Levers
+  const [arpuAdjustment, setArpuAdjustment] = useState<number>(10); // +10% Pricing / ARPU expansion
+  const [churnReduction, setChurnReduction] = useState<number>(0.5); // -0.5% Monthly Churn reduction
+  const [growthBoost, setGrowthBoost] = useState<number>(8); // +8% New ARR growth
+  const [expenseAdjustment, setExpenseAdjustment] = useState<number>(-5); // -5% OPEX reduction
 
   const handleReset = () => {
     setArpuAdjustment(0);
@@ -53,7 +50,7 @@ export default function WhatIfScenarioSimulator({
     setExpenseAdjustment(0);
   };
 
-  // 6-Month Projection Computation
+  // 6-Month Projection Computation (Compounding Dual-Curve)
   const simulationData = useMemo(() => {
     const monthNames = ['Month +1', 'Month +2', 'Month +3', 'Month +4', 'Month +5', 'Month +6'];
     const data = [];
@@ -76,7 +73,7 @@ export default function WhatIfScenarioSimulator({
     for (let i = 0; i < 6; i++) {
       currBaseRev = currBaseRev * (1 + baseMonthlyNetRate);
       currSimRev = currSimRev * (1 + simulatedMonthlyNetRate);
-      // Expenses scale slightly with customer growth
+      // OPEX scales slightly with enterprise account growth
       currSimExp = currSimExp * (1 + simulatedMonthlyNetRate * 0.25);
 
       const simProfit = currSimRev - currSimExp;
@@ -137,7 +134,7 @@ export default function WhatIfScenarioSimulator({
               </span>
             </div>
             <p className="text-xs text-slate-500 font-medium">
-              Stress-test pricing, retention elasticity, marketing boost, and expense structure in real time.
+              Simulate sensitivity to price adjustments, churn suppression, new ARR growth, and OPEX cuts.
             </p>
           </div>
         </div>
@@ -153,10 +150,10 @@ export default function WhatIfScenarioSimulator({
 
       {/* 4 Interactive Sliders Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-2xl bg-slate-50/80 border border-slate-200/80">
-        {/* Slider 1: ARPU / Price Adjustment */}
+        {/* Slider 1: Pricing / ARPU Boost */}
         <div className="space-y-2 bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-700">Price / ARPU Shift</span>
+            <span className="font-bold text-slate-700">Pricing / ARPU Boost</span>
             <span className={`font-extrabold ${arpuAdjustment >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
               {arpuAdjustment >= 0 ? '+' : ''}{arpuAdjustment}%
             </span>
@@ -172,7 +169,7 @@ export default function WhatIfScenarioSimulator({
           />
           <div className="flex justify-between text-[10px] text-slate-400 font-medium">
             <span>-20% (Discount)</span>
-            <span>+50% (Upsell)</span>
+            <span>+50% (Upsell / Tier Expansion)</span>
           </div>
         </div>
 
@@ -195,14 +192,14 @@ export default function WhatIfScenarioSimulator({
           />
           <div className="flex justify-between text-[10px] text-slate-400 font-medium">
             <span>+3.0% (Risk)</span>
-            <span>-3.0% (Retention)</span>
+            <span>-3.0% (Retention Pipeline)</span>
           </div>
         </div>
 
-        {/* Slider 3: Marketing Growth Boost */}
+        {/* Slider 3: New Monthly Growth */}
         <div className="space-y-2 bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-700">Growth / Outbound Boost</span>
+            <span className="font-bold text-slate-700">New Monthly Growth</span>
             <span className={`font-extrabold ${growthBoost >= 0 ? 'text-blue-600' : 'text-amber-600'}`}>
               {growthBoost >= 0 ? '+' : ''}{growthBoost}%
             </span>
@@ -217,15 +214,15 @@ export default function WhatIfScenarioSimulator({
             className="w-full accent-blue-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
           />
           <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-            <span>-10% (Contraction)</span>
-            <span>+30% (Aggressive)</span>
+            <span>-10% (Market Headwind)</span>
+            <span>+30% (Outbound Acceleration)</span>
           </div>
         </div>
 
-        {/* Slider 4: Operating Expense Adjustment */}
+        {/* Slider 4: Operating Expense Optimization */}
         <div className="space-y-2 bg-white p-3.5 rounded-xl border border-slate-100 shadow-2xs">
           <div className="flex items-center justify-between text-xs">
-            <span className="font-bold text-slate-700">Expense Adjustment</span>
+            <span className="font-bold text-slate-700">Operating Expense Optimization</span>
             <span className={`font-extrabold ${expenseAdjustment <= 0 ? 'text-emerald-600' : 'text-amber-600'}`}>
               {expenseAdjustment >= 0 ? '+' : ''}{expenseAdjustment}%
             </span>
@@ -240,8 +237,8 @@ export default function WhatIfScenarioSimulator({
             className="w-full accent-purple-600 cursor-pointer h-1.5 bg-slate-200 rounded-lg"
           />
           <div className="flex justify-between text-[10px] text-slate-400 font-medium">
-            <span>-30% (Lean)</span>
-            <span>+50% (Scale Ops)</span>
+            <span>-30% (Cloud & G&A Cuts)</span>
+            <span>+50% (Hiring Expansion)</span>
           </div>
         </div>
       </div>
@@ -253,7 +250,7 @@ export default function WhatIfScenarioSimulator({
             6-Month Cumulative Delta
           </span>
           <span className="text-xl font-black text-emerald-700 block mt-0.5">
-            {simulationData.cumulativeDelta >= 0 ? '+' : ''}${simulationData.cumulativeDelta.toLocaleString()}
+            {simulationData.cumulativeDelta >= 0 ? '+' : ''}{formatCompactCurrency(simulationData.cumulativeDelta, currency)}
           </span>
           <span className="text-[10px] text-emerald-600 font-medium">vs. Unaltered Baseline</span>
         </div>
@@ -263,14 +260,14 @@ export default function WhatIfScenarioSimulator({
             Month 6 Ending MRR
           </span>
           <span className="text-xl font-black text-indigo-700 block mt-0.5">
-            ${simulationData.endSimRev.toLocaleString()}
+            {formatCompactCurrency(simulationData.endSimRev, currency)}
           </span>
-          <span className="text-[10px] text-indigo-600 font-medium">Simulated Monthly Run-Rate</span>
+          <span className="text-[10px] text-indigo-600 font-medium">Simulated Run Rate</span>
         </div>
 
         <div className="p-3.5 rounded-2xl bg-purple-50/70 border border-purple-200/80">
           <span className="text-[10px] font-bold text-purple-800 uppercase tracking-wider block">
-            Projected Operating Margin
+            Operating Margin
           </span>
           <span className="text-xl font-black text-purple-700 block mt-0.5">
             {simulationData.endMargin.toFixed(1)}%
@@ -283,7 +280,7 @@ export default function WhatIfScenarioSimulator({
             6-Month Net Cash Generated
           </span>
           <span className="text-xl font-black text-blue-700 block mt-0.5">
-            +${simulationData.totalSimProfit.toLocaleString()}
+            +{formatCompactCurrency(simulationData.totalSimProfit, currency)}
           </span>
           <span className="text-[10px] text-blue-600 font-medium">Cumulative Operating Cash</span>
         </div>
@@ -299,7 +296,7 @@ export default function WhatIfScenarioSimulator({
             </h4>
           </div>
           <span className="text-[11px] text-slate-400 font-medium hidden sm:inline">
-            Drag sliders to simulate outcomes instantly
+            Drag sliders to simulate business outcomes instantly
           </span>
         </div>
 
@@ -328,7 +325,7 @@ export default function WhatIfScenarioSimulator({
                 axisLine={false}
                 tickLine={false}
                 tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
-                tickFormatter={(val) => `$${val / 1000}k`}
+                tickFormatter={(val) => formatCompactCurrency(val, currency)}
               />
               <Tooltip
                 contentStyle={{
@@ -338,11 +335,11 @@ export default function WhatIfScenarioSimulator({
                   fontSize: '12px',
                 }}
                 formatter={(value: any, name: any) => [
-                  `$${Number(value).toLocaleString()}`,
+                  formatCurrency(Number(value), currency),
                   name === 'simulatedRevenue'
-                    ? 'Simulated Revenue'
+                    ? 'Simulated MRR'
                     : name === 'baselineRevenue'
-                    ? 'Baseline Revenue'
+                    ? 'Baseline MRR'
                     : 'Simulated Net Operating Profit',
                 ]}
               />
@@ -353,9 +350,9 @@ export default function WhatIfScenarioSimulator({
                 wrapperStyle={{ paddingBottom: '12px', fontSize: '11px', fontWeight: 600 }}
                 formatter={(val) =>
                   val === 'simulatedRevenue'
-                    ? 'Simulated Revenue'
+                    ? 'Simulated MRR'
                     : val === 'baselineRevenue'
-                    ? 'Baseline Revenue'
+                    ? 'Baseline MRR'
                     : 'Simulated Net Profit'
                 }
               />

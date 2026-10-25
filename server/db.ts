@@ -130,8 +130,18 @@ export function initDatabase() {
       user_id TEXT NOT NULL,
       name TEXT NOT NULL,
       industry TEXT NOT NULL,
-      currency TEXT DEFAULT 'USD',
+      currency TEXT DEFAULT 'INR',
       created_at TEXT NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_members (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('admin', 'editor', 'viewer')),
+      joined_at TEXT NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     );
 
@@ -141,6 +151,8 @@ export function initDatabase() {
     CREATE INDEX IF NOT EXISTS idx_chat_user_created ON chat_messages(user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, is_read);
     CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_ws_members_ws ON workspace_members(workspace_id);
+    CREATE INDEX IF NOT EXISTS idx_ws_members_user ON workspace_members(user_id);
   `);
 
   // Ensure workspace_id column exists on isolated tables
@@ -252,6 +264,59 @@ function seedDemoData() {
     console.log("🌱 Default demo user seeded: alex@kinetic.com / Password123!");
   }
 
+  // Seed team members for multi-user collaboration
+  const teamMembersToSeed = [
+    {
+      id: "user_priya_sharma",
+      name: "Priya Sharma",
+      email: "priya@kinetic.com",
+      role: "Lead Financial Analyst",
+      avatar: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
+    },
+    {
+      id: "user_arjun_patel",
+      name: "Arjun Patel",
+      email: "arjun@kinetic.com",
+      role: "VP Finance",
+      avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
+    },
+    {
+      id: "user_rohan_verma",
+      name: "Rohan Verma",
+      email: "rohan@kinetic.com",
+      role: "Senior FP&A Associate",
+      avatar: "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
+    },
+  ];
+
+  for (const m of teamMembersToSeed) {
+    const existing = db.prepare("SELECT id FROM users WHERE id = ?").get(m.id);
+    if (!existing) {
+      db.prepare(`
+        INSERT INTO users (
+          id, name, email, password_hash, phone, role, timezone, avatar, api_key,
+          two_factor_enabled, notifications_json, integrations_json, plan_id, plan_interval, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        m.id,
+        m.name,
+        m.email,
+        bcrypt.hashSync("Password123!", 10),
+        "+91 98765 43210",
+        m.role,
+        "Asia/Kolkata (IST)",
+        m.avatar,
+        "tw_live_" + crypto.randomUUID().replace(/-/g, ""),
+        0,
+        JSON.stringify({ email: true, app: true, weeklyReport: true }),
+        JSON.stringify([]),
+        "enterprise",
+        "yearly",
+        new Date().toISOString()
+      );
+    }
+  }
+
   // 1. Seed Primary Default Workspace for Demo User
   const defaultWsId = "ws_kinetic_analytics";
   const existingDefaultWs = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(defaultWsId) as any;
@@ -259,8 +324,10 @@ function seedDemoData() {
     db.prepare(`
       INSERT INTO workspaces (id, user_id, name, industry, currency, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(defaultWsId, demoUserId, "Kinetic Global Analytics", "SaaS", "USD", new Date().toISOString());
-    console.log("🌱 Seeded primary workspace: Kinetic Global Analytics");
+    `).run(defaultWsId, demoUserId, "Kinetic SaaS Cloud", "B2B SaaS", "INR", new Date().toISOString());
+    console.log("🌱 Seeded primary workspace: Kinetic SaaS Cloud");
+  } else {
+    db.prepare("UPDATE workspaces SET name = 'Kinetic SaaS Cloud', industry = 'B2B SaaS', currency = 'INR' WHERE id = ?").run(defaultWsId);
   }
 
   // Ensure all existing unassigned demo records are linked to the primary workspace
@@ -269,33 +336,91 @@ function seedDemoData() {
   db.prepare("UPDATE insights SET workspace_id = ? WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '')").run(defaultWsId, demoUserId);
   db.prepare("UPDATE chat_messages SET workspace_id = ? WHERE user_id = ? AND (workspace_id IS NULL OR workspace_id = '')").run(defaultWsId, demoUserId);
 
-  // 2. Seed Secondary Workspace: Aether Consumer Retail
+  // 2. Seed Secondary Workspace: Aether AI Platform
   const secondaryWsId = "ws_aether_retail";
   const existingSecWs = db.prepare("SELECT * FROM workspaces WHERE id = ?").get(secondaryWsId) as any;
   if (!existingSecWs) {
     db.prepare(`
       INSERT INTO workspaces (id, user_id, name, industry, currency, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
-    `).run(secondaryWsId, demoUserId, "Aether Consumer Retail", "E-commerce", "USD", new Date().toISOString());
-    console.log("🌱 Seeded secondary workspace: Aether Consumer Retail");
+    `).run(secondaryWsId, demoUserId, "Aether AI Platform", "Enterprise Software", "INR", new Date().toISOString());
+    console.log("🌱 Seeded secondary workspace: Aether AI Platform");
+  } else {
+    db.prepare("UPDATE workspaces SET name = 'Aether AI Platform', industry = 'Enterprise Software', currency = 'INR' WHERE id = ?").run(secondaryWsId);
   }
+
+  // Ensure any workspaces with USD are updated to INR
+  db.prepare("UPDATE workspaces SET currency = 'INR' WHERE currency IS NULL OR currency = 'USD'").run();
+
+  // Seed Workspace Members for Collaboration
+  const insertMember = db.prepare(`
+    INSERT OR IGNORE INTO workspace_members (id, workspace_id, user_id, role, joined_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+
+  insertMember.run("wm_alex_kinetic", defaultWsId, demoUserId, "admin", "2025-01-15T10:00:00Z");
+  insertMember.run("wm_priya_kinetic", defaultWsId, "user_priya_sharma", "editor", "2025-02-10T11:30:00Z");
+  insertMember.run("wm_arjun_kinetic", defaultWsId, "user_arjun_patel", "admin", "2025-01-20T09:15:00Z");
+  insertMember.run("wm_rohan_kinetic", defaultWsId, "user_rohan_verma", "viewer", "2025-03-01T14:00:00Z");
+
+  insertMember.run("wm_alex_aether", secondaryWsId, demoUserId, "admin", "2025-02-01T10:00:00Z");
+  insertMember.run("wm_priya_aether", secondaryWsId, "user_priya_sharma", "editor", "2025-02-15T12:00:00Z");
+
+  // Scale any existing low timeseries values by 80x to realistic INR SaaS numbers (e.g. ₹80 Lakhs MRR)
+  db.prepare(`
+    UPDATE timeseries_records 
+    SET revenue = revenue * 80, 
+        expenses = expenses * 80,
+        industry = 'B2B SaaS'
+    WHERE revenue < 1000000
+  `).run();
+
+  // Update existing insights ins_01 - ins_04 for B2B SaaS
+  db.prepare(`
+    UPDATE insights 
+    SET title = 'Enterprise Tier Usage-Based Pricing Expansion',
+        desc = 'Introducing hybrid usage-based tiers could drive 18% net revenue expansion.',
+        full_content = 'Telemetry indicates high feature consumption across top 20% tier accounts. Transitioning from flat enterprise license pricing to a base plus usage-metered model is projected to increase monthly recurring revenue by ₹14,50,000 across current enterprise accounts.'
+    WHERE id = 'ins_01'
+  `).run();
+  db.prepare(`
+    UPDATE insights 
+    SET title = 'Proactive Churn Reduction Pipeline',
+        desc = 'Predictive early warning alerts reduce mid-market customer churn by 22%.',
+        full_content = 'By analyzing API call frequency dips across Day-14 to Day-30 cohorts, our telemetry flags at-risk enterprise accounts 3 weeks before renewal. Triggering automated CS check-ins protects ₹16,80,000 in annualized recurring contract value.'
+    WHERE id = 'ins_02'
+  `).run();
+  db.prepare(`
+    UPDATE insights 
+    SET title = 'Compute & Cloud Infrastructure Optimization',
+        desc = 'ARM cloud instances projected to trim recurring compute overhead.',
+        full_content = 'Compute infrastructure expenses represent 38% of total operating overhead. Migrating backend processing pipelines to ARM/Graviton cloud instances reduces monthly AWS/GCP bills by ₹9,60,000 without degrading latency SLAs.'
+    WHERE id = 'ins_03'
+  `).run();
+  db.prepare(`
+    UPDATE insights 
+    SET title = 'ARPU Acceleration via Enterprise Add-ons',
+        desc = 'Dedicated compliance and SSO add-ons increase Average Revenue Per User.',
+        full_content = 'Demand for SAML SSO and SOC-2 audit log exports has grown by 300%. Packaging these capabilities as high-tier add-on packs expands blended ARPU from ₹3,240 to ₹4,150 per subscription.'
+    WHERE id = 'ins_04'
+  `).run();
 
   // Seed retail records for secondary workspace if none exist
   const secRecCount = (db.prepare("SELECT COUNT(*) as count FROM timeseries_records WHERE workspace_id = ?").get(secondaryWsId) as any).count;
   if (secRecCount === 0) {
     const retailData = [
-      { period: "2025-05", revenue: 128000, expenses: 98000, customers: 8400, churnRate: 3.9, industry: "E-commerce" },
-      { period: "2025-06", revenue: 135000, expenses: 102000, customers: 8900, churnRate: 3.8, industry: "E-commerce" },
-      { period: "2025-07", revenue: 142000, expenses: 106000, customers: 9500, churnRate: 3.7, industry: "E-commerce" },
-      { period: "2025-08", revenue: 151000, expenses: 111000, customers: 10200, churnRate: 3.6, industry: "E-commerce" },
-      { period: "2025-09", revenue: 163000, expenses: 119000, customers: 11000, churnRate: 3.5, industry: "E-commerce" },
-      { period: "2025-10", revenue: 178000, expenses: 128000, customers: 12100, churnRate: 3.4, industry: "E-commerce" },
-      { period: "2025-11", revenue: 210000, expenses: 148000, customers: 14200, churnRate: 3.2, industry: "E-commerce" },
-      { period: "2025-12", revenue: 245000, expenses: 168000, customers: 16800, churnRate: 3.1, industry: "E-commerce" },
-      { period: "2026-01", revenue: 185000, expenses: 135000, customers: 15200, churnRate: 3.3, industry: "E-commerce" },
-      { period: "2026-02", revenue: 192000, expenses: 139000, customers: 15800, churnRate: 3.2, industry: "E-commerce" },
-      { period: "2026-03", revenue: 205000, expenses: 146000, customers: 16900, churnRate: 3.0, industry: "E-commerce" },
-      { period: "2026-04", revenue: 218000, expenses: 152000, customers: 18100, churnRate: 2.9, industry: "E-commerce" },
+      { period: "2025-05", revenue: 10240000, expenses: 7840000, customers: 8400, churnRate: 3.9, industry: "Enterprise Software" },
+      { period: "2025-06", revenue: 10800000, expenses: 8160000, customers: 8900, churnRate: 3.8, industry: "Enterprise Software" },
+      { period: "2025-07", revenue: 11360000, expenses: 8480000, customers: 9500, churnRate: 3.7, industry: "Enterprise Software" },
+      { period: "2025-08", revenue: 12080000, expenses: 8880000, customers: 10200, churnRate: 3.6, industry: "Enterprise Software" },
+      { period: "2025-09", revenue: 13040000, expenses: 9520000, customers: 11000, churnRate: 3.5, industry: "Enterprise Software" },
+      { period: "2025-10", revenue: 14240000, expenses: 10240000, customers: 12100, churnRate: 3.4, industry: "Enterprise Software" },
+      { period: "2025-11", revenue: 16800000, expenses: 11840000, customers: 14200, churnRate: 3.2, industry: "Enterprise Software" },
+      { period: "2025-12", revenue: 19600000, expenses: 13440000, customers: 16800, churnRate: 3.1, industry: "Enterprise Software" },
+      { period: "2026-01", revenue: 14800000, expenses: 10800000, customers: 15200, churnRate: 3.3, industry: "Enterprise Software" },
+      { period: "2026-02", revenue: 15360000, expenses: 11120000, customers: 15800, churnRate: 3.2, industry: "Enterprise Software" },
+      { period: "2026-03", revenue: 16400000, expenses: 11680000, customers: 16900, churnRate: 3.0, industry: "Enterprise Software" },
+      { period: "2026-04", revenue: 17440000, expenses: 12160000, customers: 18100, churnRate: 2.9, industry: "Enterprise Software" },
     ];
 
     const insertRetailRec = db.prepare(`
@@ -318,39 +443,39 @@ function seedDemoData() {
       );
     }
 
-    // Seed 1 analysis report for Aether Retail
+    // Seed 1 analysis report for Aether AI Platform
     const retailReport = {
       id: "rep_aether_01",
       userId: demoUserId,
       workspaceId: secondaryWsId,
       timestamp: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-      industry: "E-commerce",
-      summary: "Omnichannel retail performance demonstrates robust repeat order velocity. Gross margin expanded to 30.3% following direct-to-consumer fulfillment consolidation. Churn has stabilized at 2.9% across 18,100 active retail customers.",
+      industry: "Enterprise Software",
+      summary: "Multi-product enterprise software telemetry demonstrates strong net expansion. Operating margin expanded to 30.3% following cloud infrastructure optimization. Churn rate stabilized at 2.9% across 18,100 active subscriptions.",
       riskLevel: "Low",
       efficiencyScore: 86,
       inputData: {
-        revenue: 218000,
-        expenses: 152000,
+        revenue: 17440000,
+        expenses: 12160000,
         customers: 18100,
         churnRate: 2.9,
-        industry: "E-commerce",
-        goals: "Scale DTC channels and expand TikTok Shop integrations",
+        industry: "Enterprise Software",
+        goals: "Scale enterprise APAC delivery channels and expand automated billing integrations",
       },
       prediction: {
-        summary: "Omnichannel retail performance demonstrates robust repeat order velocity. Gross margin expanded to 30.3% following direct-to-consumer fulfillment consolidation. Churn has stabilized at 2.9% across 18,100 active retail customers.",
+        summary: "Multi-product enterprise software telemetry demonstrates strong net expansion. Operating margin expanded to 30.3% following cloud infrastructure optimization. Churn rate stabilized at 2.9% across 18,100 active subscriptions.",
         forecast: [
-          { month: "Month 1", revenue: 228900 },
-          { month: "Month 2", revenue: 240350 },
-          { month: "Month 3", revenue: 252360 },
-          { month: "Month 4", revenue: 264980 },
-          { month: "Month 5", revenue: 278230 },
-          { month: "Month 6", revenue: 292140 },
+          { month: "Month 1", revenue: 18312000 },
+          { month: "Month 2", revenue: 19227600 },
+          { month: "Month 3", revenue: 20188900 },
+          { month: "Month 4", revenue: 21198300 },
+          { month: "Month 5", revenue: 22258200 },
+          { month: "Month 6", revenue: 23371100 },
         ],
         recommendations: [
-          "Deploy dynamic cart recovery SMS automation for high-intent abandoned checkouts.",
-          "Expand TikTok Shop and Instagram direct checkout catalog synchronization.",
-          "Negotiate tier-volume courier rates across Midwest and East Coast fulfillment nodes.",
-          "Introduce VIP loyalty tier offering early access to seasonal product drops.",
+          "Deploy automated usage threshold alerts for enterprise tier account expansion.",
+          "Formalize quarterly customer business reviews for Top 20 accounts.",
+          "Negotiate multi-year cloud compute reservations to trim recurring infrastructure overhead.",
+          "Introduce volume pricing incentives on additional developer API licenses.",
         ],
         riskLevel: "Low",
         efficiencyScore: 86,
@@ -380,9 +505,9 @@ function seedDemoData() {
         id: "ins_aether_01",
         userId: demoUserId,
         workspaceId: secondaryWsId,
-        title: "DTC Cart Size Elasticity",
-        desc: "Bundling seasonal complementary SKUs yields 18% higher average order value.",
-        fullContent: "Cross-merchandising telemetry highlights strong elasticity when bundling accessory items with core lifestyle apparel. Implementing a 1-click checkout bundle recommendation increases AOV from $52 to $61.",
+        title: "Combo Meal Basket Size Elasticity",
+        desc: "Bundling beverage with daily thali/snacks yields 18% higher average order value.",
+        fullContent: "Cross-merchandising telemetry highlights strong elasticity when bundling cold drinks or desserts with meal platters. Implementing combo pricing increases AOV from ₹180 to ₹235.",
         tag: "Product",
         image: "https://images.unsplash.com/photo-1441986300917-64674bd600d8?auto=format&fit=crop&q=80&w=2070",
         author: "Retail AI Strategist",
@@ -393,7 +518,7 @@ function seedDemoData() {
         likedByUser: 0,
         savedByUser: 1,
         actionItems: [
-          { id: "1", text: "Configure dynamic checkout bundle recommendations", done: true },
+          { id: "1", text: "Configure digital counter combo menu boards", done: true },
           { id: "2", text: "Track AOV impact across 1,000 checkout sessions", done: false },
         ],
       },
@@ -401,9 +526,9 @@ function seedDemoData() {
         id: "ins_aether_02",
         userId: demoUserId,
         workspaceId: secondaryWsId,
-        title: "Logistics Optimization",
-        desc: "Regional hub fulfillment reduces shipping latency by 1.8 days.",
-        fullContent: "Consolidating East Coast inventory in the Columbus fulfillment center reduces average delivery transit times to 2.1 days, driving customer repurchase rate up by 14%.",
+        title: "Supply Chain & Perishables Optimization",
+        desc: "Direct daily mandi sourcing reduces inventory spoilage cost by 14%.",
+        fullContent: "Consolidating direct daily vegetable and dairy sourcing reduces delivery transit latency and eliminates middleman commission, driving operating margin up by 3.2%.",
         tag: "Operations",
         image: "https://images.unsplash.com/photo-1586528116311-ad8dd3c8310d?auto=format&fit=crop&q=80&w=2070",
         author: "Supply Chain Engine",
@@ -414,8 +539,8 @@ function seedDemoData() {
         likedByUser: 1,
         savedByUser: 0,
         actionItems: [
-          { id: "1", text: "Route 35% of national volume through Columbus node", done: true },
-          { id: "2", text: "Evaluate shipping SLA feedback in review sentiment", done: false },
+          { id: "1", text: "Route 35% of daily stock through direct distributor mandi channel", done: true },
+          { id: "2", text: "Audit weekly wastage logs on fresh produce", done: false },
         ],
       },
     ];
@@ -448,7 +573,7 @@ function seedDemoData() {
       );
     }
 
-    // Seed copilot welcome message for Aether Retail
+    // Seed copilot welcome message for Aether AI Platform
     db.prepare(`
       INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -457,10 +582,10 @@ function seedDemoData() {
       demoUserId,
       secondaryWsId,
       "assistant",
-      "Hello Alex! Telemetry for Aether Consumer Retail is online. Monthly revenue is $218,000 across 18,100 active retail accounts with a 30.3% operating margin and 2.9% churn rate. How can I assist with your seasonal GMV projections, inventory working capital, or DTC expansion models?",
+      "Hello Alex! Telemetry for Aether AI Platform is online. Monthly Recurring Revenue (MRR) is ₹1,74,40,000 across 18,100 active enterprise accounts with a 30.3% operating margin and 2.9% churn rate. How can I assist with your ACV projections, CAC payback analysis, or enterprise expansion models?",
       JSON.stringify({
-        revenue: 218000,
-        expenses: 152000,
+        revenue: 17440000,
+        expenses: 12160000,
         margin: 30.3,
         churn: 2.9,
         customers: 18100,
@@ -468,25 +593,25 @@ function seedDemoData() {
       new Date().toISOString()
     );
 
-    console.log("🌱 Seeded secondary workspace telemetry, reports, insights & copilot briefing for Aether Consumer Retail.");
+    console.log("🌱 Seeded secondary workspace telemetry, reports, insights & copilot briefing for Aether AI Platform.");
   }
 
   // Seed 12 months historical records if none exist for this user
   const recordCount = (db.prepare("SELECT COUNT(*) as count FROM timeseries_records WHERE user_id = ?").get(demoUserId) as any).count;
   if (recordCount === 0) {
     const historicalData = [
-      { period: "2025-05", revenue: 45000, expenses: 34000, customers: 950, churnRate: 2.9, industry: "SaaS" },
-      { period: "2025-06", revenue: 48500, expenses: 35200, customers: 1020, churnRate: 2.7, industry: "SaaS" },
-      { period: "2025-07", revenue: 52000, expenses: 36800, customers: 1110, churnRate: 2.5, industry: "SaaS" },
-      { period: "2025-08", revenue: 56000, expenses: 38500, customers: 1220, churnRate: 2.4, industry: "SaaS" },
-      { period: "2025-09", revenue: 61500, expenses: 41000, customers: 1350, churnRate: 2.2, industry: "SaaS" },
-      { period: "2025-10", revenue: 67000, expenses: 43200, customers: 1490, churnRate: 2.1, industry: "SaaS" },
-      { period: "2025-11", revenue: 72500, expenses: 45800, customers: 1640, churnRate: 1.9, industry: "SaaS" },
-      { period: "2025-12", revenue: 79000, expenses: 48000, customers: 1800, churnRate: 1.9, industry: "SaaS" },
-      { period: "2026-01", revenue: 84500, expenses: 50500, customers: 1980, churnRate: 1.8, industry: "SaaS" },
-      { period: "2026-02", revenue: 89000, expenses: 52000, customers: 2120, churnRate: 1.7, industry: "SaaS" },
-      { period: "2026-03", revenue: 94500, expenses: 54500, customers: 2290, churnRate: 1.6, industry: "SaaS" },
-      { period: "2026-04", revenue: 99200, expenses: 56200, customers: 2450, churnRate: 1.5, industry: "SaaS" },
+      { period: "2025-05", revenue: 3600000, expenses: 2720000, customers: 950, churnRate: 2.9, industry: "B2B SaaS" },
+      { period: "2025-06", revenue: 3880000, expenses: 2816000, customers: 1020, churnRate: 2.7, industry: "B2B SaaS" },
+      { period: "2025-07", revenue: 4160000, expenses: 2944000, customers: 1110, churnRate: 2.5, industry: "B2B SaaS" },
+      { period: "2025-08", revenue: 4480000, expenses: 3080000, customers: 1220, churnRate: 2.4, industry: "B2B SaaS" },
+      { period: "2025-09", revenue: 4920000, expenses: 3280000, customers: 1350, churnRate: 2.2, industry: "B2B SaaS" },
+      { period: "2025-10", revenue: 5360000, expenses: 3456000, customers: 1490, churnRate: 2.1, industry: "B2B SaaS" },
+      { period: "2025-11", revenue: 5800000, expenses: 3664000, customers: 1640, churnRate: 1.9, industry: "B2B SaaS" },
+      { period: "2025-12", revenue: 6320000, expenses: 3840000, customers: 1800, churnRate: 1.9, industry: "B2B SaaS" },
+      { period: "2026-01", revenue: 6760000, expenses: 4040000, customers: 1980, churnRate: 1.8, industry: "B2B SaaS" },
+      { period: "2026-02", revenue: 7120000, expenses: 4160000, customers: 2120, churnRate: 1.7, industry: "B2B SaaS" },
+      { period: "2026-03", revenue: 7560000, expenses: 4360000, customers: 2290, churnRate: 1.6, industry: "B2B SaaS" },
+      { period: "2026-04", revenue: 7936000, expenses: 4496000, customers: 2450, churnRate: 1.5, industry: "B2B SaaS" },
     ];
 
     const insertRecord = db.prepare(`
@@ -521,33 +646,33 @@ function seedDemoData() {
       id: "rep_demo_01",
       userId: demoUserId,
       timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
-      industry: "SaaS",
-      summary: "Operational trajectory demonstrates consistent top-line acceleration with steady margin expansion. Customer acquisition velocity remains healthy while churn has stabilized at 1.5%. Unit economics support aggressive investment in enterprise acquisition.",
+      industry: "B2B SaaS",
+      summary: "Financial trajectory demonstrates consistent top-line ARR acceleration with steady operating margin expansion. Customer acquisition velocity remains healthy while net monthly churn has stabilized at 1.5%. Unit economics strongly support aggressive expansion into high-tier enterprise cohorts.",
       riskLevel: "Low",
       efficiencyScore: 88,
       inputData: {
-        revenue: 99200,
-        expenses: 56200,
+        revenue: 7936000,
+        expenses: 4496000,
         customers: 2450,
         churnRate: 1.5,
-        industry: "SaaS",
-        goals: "Scale to $150k MRR and establish European enterprise presence"
+        industry: "B2B SaaS",
+        goals: "Scale to ₹1,20,00,000 MRR and accelerate enterprise ACV expansion"
       },
       prediction: {
-        summary: "Operational trajectory demonstrates consistent top-line acceleration with steady margin expansion. Customer acquisition velocity remains healthy while churn has stabilized at 1.5%. Unit economics support aggressive investment in enterprise acquisition.",
+        summary: "Financial trajectory demonstrates consistent top-line ARR acceleration with steady operating margin expansion. Customer acquisition velocity remains healthy while net monthly churn has stabilized at 1.5%. Unit economics strongly support aggressive expansion into high-tier enterprise cohorts.",
         forecast: [
-          { month: "Month 1", revenue: 105650 },
-          { month: "Month 2", revenue: 112520 },
-          { month: "Month 3", revenue: 119830 },
-          { month: "Month 4", revenue: 127620 },
-          { month: "Month 5", revenue: 135920 },
-          { month: "Month 6", revenue: 144750 },
+          { month: "Month 1", revenue: 8452000 },
+          { month: "Month 2", revenue: 9001600 },
+          { month: "Month 3", revenue: 9586400 },
+          { month: "Month 4", revenue: 10209600 },
+          { month: "Month 5", revenue: 10873600 },
+          { month: "Month 6", revenue: 11580000 },
         ],
         recommendations: [
-          "Deploy automated account expansion triggers for accounts exceeding 80% feature utilization.",
-          "Expand localized EU compliance infrastructure (GDPR dedicated sub-processors).",
-          "Optimize annual upfront payment incentives to extend cash runway beyond 24 months.",
-          "Introduce tier-based SLA guarantees for high ACV enterprise contracts."
+          "Deploy automated usage-metering alerts to encourage mid-tier customer upgrades.",
+          "Formalize quarterly customer business reviews for Top 20 enterprise accounts.",
+          "Reinvest up to 15% of net operating surplus into verified B2B outbound sales pipelines.",
+          "Migrate development and testing clusters to ARM architecture to curb cloud infrastructure overhead."
         ],
         riskLevel: "Low",
         efficiencyScore: 88
@@ -558,27 +683,27 @@ function seedDemoData() {
       id: "rep_demo_02",
       userId: demoUserId,
       timestamp: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-      industry: "SaaS",
-      summary: "Healthy SaaS fundamentals with 42.3% operating margin. Customer retention improved 15 bps MoM. Recommended focus is reducing time-to-first-value to lower onboarding drop-off.",
+      industry: "B2B SaaS",
+      summary: "Healthy SaaS fundamentals with 42.3% operating margin. Customer retention improved 15 bps MoM. Recommended focus is reducing Day-30 onboarding friction to accelerate Net Dollar Retention.",
       riskLevel: "Low",
       efficiencyScore: 84,
       inputData: {
-        revenue: 89000,
-        expenses: 52000,
+        revenue: 7120000,
+        expenses: 4160000,
         customers: 2120,
         churnRate: 1.7,
-        industry: "SaaS",
-        goals: "Surpass $100k MRR threshold"
+        industry: "B2B SaaS",
+        goals: "Surpass ₹80,00,000 MRR threshold"
       },
       prediction: {
-        summary: "Healthy SaaS fundamentals with 42.3% operating margin. Customer retention improved 15 bps MoM. Recommended focus is reducing time-to-first-value to lower onboarding drop-off.",
+        summary: "Healthy SaaS fundamentals with 42.3% operating margin. Customer retention improved 15 bps MoM. Recommended focus is reducing Day-30 onboarding friction to accelerate Net Dollar Retention.",
         forecast: [
-          { month: "Month 1", revenue: 94780 },
-          { month: "Month 2", revenue: 100950 },
-          { month: "Month 3", revenue: 107510 },
-          { month: "Month 4", revenue: 114500 },
-          { month: "Month 5", revenue: 121940 },
-          { month: "Month 6", revenue: 129870 },
+          { month: "Month 1", revenue: 7582400 },
+          { month: "Month 2", revenue: 8076000 },
+          { month: "Month 3", revenue: 8600800 },
+          { month: "Month 4", revenue: 9160000 },
+          { month: "Month 5", revenue: 9755200 },
+          { month: "Month 6", revenue: 10389600 },
         ],
         recommendations: [
           "Audit customer onboarding journey for Day 1-7 drop-off points.",
@@ -630,9 +755,9 @@ function seedDemoData() {
       {
         id: "ins_01",
         userId: demoUserId,
-        title: "EMEA Expansion Opportunity",
-        desc: "Unsaturated demand in DACH region for enterprise analytics tools.",
-        fullContent: "Our multi-vector analysis indicates a significant gap in localized enterprise analytics within the DACH region (Germany, Austria, Switzerland). Competitors currently lack GDPR-compliant private cloud deployments which are highly valued in this sector. Recommended entry strategy: Strategic partnership with local MSPs.",
+        title: "Quick-Commerce Counter Defense",
+        desc: "Hyperlocal 15-minute delivery for Kirana staples protects counter sales.",
+        fullContent: "Our local footfall telemetry indicates that quick-commerce platforms are targeting household staple baskets. Offering WhatsApp-based 15-minute delivery within 1.5 km protects high-frequency kirana footfall and retains high-margin FMCG orders.",
         tag: "Market Entry",
         image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=2070",
         author: "Sarah Chen",
@@ -643,18 +768,18 @@ function seedDemoData() {
         likedByUser: 0,
         savedByUser: 1,
         actionItems: [
-          { id: "1", text: "Audit Frankfurt cloud deployment options", done: true },
-          { id: "2", text: "Contact top 3 DACH managed service providers", done: false },
-          { id: "3", text: "Prepare localized German marketing collateral", done: false },
+          { id: "1", text: "Set up store WhatsApp business catalog with top 50 daily items", done: true },
+          { id: "2", text: "Assign dedicated counter assistant for 15-minute delivery radius", done: false },
+          { id: "3", text: "Distribute QR code pamphlets to nearby residential societies", done: false },
         ]
       },
       {
         id: "ins_02",
         userId: demoUserId,
-        title: "Retention Optimization",
-        desc: "Personalized onboarding flows could reduce early-stage churn by 22%.",
-        fullContent: "By analyzing user drop-off points in the first 7 days, we have identified that the technical setup phase is the primary friction point. Implementing an 'Automated Configuration Wizard' could bridge this gap. Expected impact is a 22% reduction in Day-30 churn.",
-        tag: "Product",
+        title: "Customer Drop-off Reduction",
+        desc: "Automated SMS/WhatsApp promotional offers reduce monthly customer drop-off by 22%.",
+        fullContent: "By analyzing counter ledger return rates across 30 days, we observed that customers not receiving monthly refill reminders drop off after 3 weeks. Implementing automated SMS reminder offers recovers ₹18,500 in repeat monthly GTV.",
+        tag: "Operations",
         image: "https://images.unsplash.com/photo-1553729459-efe14ef6055d?auto=format&fit=crop&q=80&w=2070",
         author: "Alex Sterling",
         avatar: "https://images.unsplash.com/photo-1580489944761-15a19d654956?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
@@ -664,17 +789,17 @@ function seedDemoData() {
         likedByUser: 1,
         savedByUser: 1,
         actionItems: [
-          { id: "1", text: "Design 3-step setup wizard prototype", done: true },
-          { id: "2", text: "Run A/B test on self-serve cohort", done: false },
-          { id: "3", text: "Review friction telemetry with UX team", done: true },
+          { id: "1", text: "Configure automated 25-day grocery refill reminders", done: true },
+          { id: "2", text: "Run festive weekend discount coupon on counter checkout", done: false },
+          { id: "3", text: "Audit inactive customer ledger entries with store manager", done: true },
         ]
       },
       {
         id: "ins_03",
         userId: demoUserId,
-        title: "Infrastructure Efficiency",
-        desc: "Cloud compute costs projected to rise. Optimization recommended.",
-        fullContent: "Global server costs are trending upwards by 8% quarterly. Our analysis suggests that migrating non-critical legacy workloads to ARM-based instances could reduce compute overhead by $12k/month without impacting SLA benchmarks.",
+        title: "Direct Mandi & Supply Efficiency",
+        desc: "Direct mandi procurement projected to trim recurring supply overhead.",
+        fullContent: "Procurement costs on staples and grains are running 7% above wholesale benchmarks. Transitioning bulk dal and rice procurement directly from agricultural mandi yards reduces procurement cost by ₹15,000/month.",
         tag: "Operations",
         image: "https://images.unsplash.com/photo-1551288049-bebda4e38f71?auto=format&fit=crop&q=80&w=2070",
         author: "System AI",
@@ -685,17 +810,17 @@ function seedDemoData() {
         likedByUser: 0,
         savedByUser: 0,
         actionItems: [
-          { id: "1", text: "Benchmark test workload on Graviton/ARM instances", done: true },
-          { id: "2", text: "Configure auto-scaling down during non-peak UTC hours", done: false },
+          { id: "1", text: "Establish direct mandi supply accounts for pulses and wheat", done: true },
+          { id: "2", text: "Negotiate 30-day credit payment cycle with regional wholesale distributors", done: false },
         ]
       },
       {
         id: "ins_04",
         userId: demoUserId,
-        title: "AI Feature Prioritization",
-        desc: "Users are searching for predictive resource allocation tool.",
-        fullContent: "Search query analysis within the product dashboard shows a 300% spike in users looking for 'Resource Forecasting.' Building this as a high-tier feature could drive a 12% expansion in ARPU.",
-        tag: "Product",
+        title: "Average Order Value (AOV) Expansion",
+        desc: "Checkout impulse displays increase basket size across walk-in footfall.",
+        fullContent: "Transaction item density analysis indicates 68% of customers purchase single-category items. Placing high-margin impulse snacks and beverages near the UPI soundbox counter drives a 14% expansion in Average Order Value (AOV).",
+        tag: "Finance",
         image: "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&q=80&w=2070",
         author: "David Park",
         avatar: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80",
@@ -705,8 +830,8 @@ function seedDemoData() {
         likedByUser: 0,
         savedByUser: 0,
         actionItems: [
-          { id: "1", text: "Draft spec for Resource Allocation forecasting module", done: false },
-          { id: "2", text: "Survey 30 enterprise tier customers", done: false },
+          { id: "1", text: "Install confectionery and beverage display rack next to UPI QR soundbox", done: false },
+          { id: "2", text: "Bundle breakfast staples (bread + butter + eggs) at 5% combo incentive", done: false },
         ]
       }
     ];
@@ -749,7 +874,7 @@ function seedDemoData() {
         id: "notif_01",
         userId: demoUserId,
         title: "Revenue Milestone Reached",
-        text: "Monthly revenue reached $99,200 with an exceptional 43.3% operating margin.",
+        text: "Monthly Recurring Revenue (MRR) reached ₹79,36,000 with an exceptional 43.3% operating margin.",
         type: "success",
         isRead: 0,
         createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
@@ -837,10 +962,10 @@ function seedDemoData() {
       id: "chat_init_01",
       userId: demoUserId,
       role: "assistant",
-      content: "Hello Alex! I have loaded your 12-month financial telemetry. With your current revenue at $99,200/mo, operating margins at 43.3%, and customer churn at 1.5%, your business demonstrates exceptional capital efficiency (Rule of 40 score ~55%). How can I assist with your capital allocation, sensitivity models, or runway forecasts today?",
+      content: "Hello Alex! I have loaded your 12-month financial telemetry. With your current MRR at ₹79,36,000/mo, operating margins at 43.3%, and customer churn at 1.5%, your business demonstrates exceptional capital efficiency (Rule of 40 score ~55%). How can I assist with your capital allocation, sensitivity models, or runway forecasts today?",
       metricsSnapshot: JSON.stringify({
-        revenue: 99200,
-        expenses: 56200,
+        revenue: 7936000,
+        expenses: 4496000,
         margin: 43.3,
         churn: 1.5,
         customers: 2450,
@@ -891,22 +1016,28 @@ export function createWorkspace(
   userId: string,
   name: string,
   industry: string,
-  currency: string = "USD"
+  currency: string = "INR"
 ): WorkspaceRow {
   const id = "ws_" + crypto.randomUUID();
   const now = new Date().toISOString();
-  const cur = (currency || "USD").trim().toUpperCase();
+  const cur = (currency || "INR").trim().toUpperCase();
 
   db.prepare(`
     INSERT INTO workspaces (id, user_id, name, industry, currency, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(id, userId, name.trim(), industry.trim(), cur, now);
 
+  // Add creator as 'admin' in workspace_members
+  db.prepare(`
+    INSERT OR IGNORE INTO workspace_members (id, workspace_id, user_id, role, joined_at)
+    VALUES (?, ?, ?, 'admin', ?)
+  `).run("wm_" + crypto.randomUUID(), id, userId, now);
+
   // Seed baseline starter records so metrics and charts render immediately
-  const baseRevenue = industry === "E-commerce" ? 115000 : industry === "Fintech" ? 95000 : 70000;
-  const baseExpenses = Math.round(baseRevenue * 0.58);
-  const baseCustomers = industry === "E-commerce" ? 5200 : 1600;
-  const baseChurn = industry === "E-commerce" ? 3.2 : 1.8;
+  const baseRevenue = 8000000;
+  const baseExpenses = Math.round(baseRevenue * 0.56);
+  const baseCustomers = 2450;
+  const baseChurn = 1.5;
 
   const starterRows = [
     { period: "2026-02", revenue: Math.round(baseRevenue * 0.9), expenses: Math.round(baseExpenses * 0.92), customers: Math.round(baseCustomers * 0.9), churn: baseChurn + 0.3 },
@@ -925,7 +1056,7 @@ export function createWorkspace(
 
   // Seed initial welcome copilot briefing
   const margin = Number((((baseRevenue - baseExpenses) / baseRevenue) * 100).toFixed(1));
-  const welcomeContent = `Hello! I have loaded telemetry for ${name.trim()} (${industry.trim()}). Baseline monthly revenue is $${baseRevenue.toLocaleString()} with a ${margin}% operating margin and ${baseChurn}% churn across ${baseCustomers.toLocaleString()} active customer accounts. How can I assist with your capital allocation, sensitivity models, or runway forecasts today?`;
+  const welcomeContent = `Hello! I have loaded telemetry for "${name.trim()}" (${industry.trim()}). Baseline MRR is ₹${baseRevenue.toLocaleString("en-IN")} with a ${margin}% operating margin and ${baseChurn}% churn across ${baseCustomers.toLocaleString("en-IN")} active subscriptions. How can I assist with your capital allocation, sensitivity models, or runway forecasts today?`;
 
   db.prepare(`
     INSERT INTO chat_messages (id, user_id, workspace_id, role, content, metrics_snapshot_json, created_at)
@@ -990,9 +1121,70 @@ export function deleteWorkspace(workspaceId: string, userId: string) {
     throw new Error("Cannot delete your only workspace. A minimum of one active workspace is required.");
   }
 
+  db.prepare("DELETE FROM workspace_members WHERE workspace_id = ?").run(workspaceId);
   db.prepare("DELETE FROM timeseries_records WHERE workspace_id = ?").run(workspaceId);
   db.prepare("DELETE FROM analysis_reports WHERE workspace_id = ?").run(workspaceId);
   db.prepare("DELETE FROM insights WHERE workspace_id = ?").run(workspaceId);
   db.prepare("DELETE FROM chat_messages WHERE workspace_id = ?").run(workspaceId);
   db.prepare("DELETE FROM workspaces WHERE id = ? AND user_id = ?").run(workspaceId, userId);
+}
+
+// ==========================================
+// Workspace Member & Collaboration Helpers
+// ==========================================
+export interface WorkspaceMemberRow {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  role: "admin" | "editor" | "viewer";
+  joinedAt: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  title?: string;
+}
+
+export function getWorkspaceMembers(workspaceId: string): WorkspaceMemberRow[] {
+  const rows = db
+    .prepare(`
+      SELECT wm.id, wm.workspace_id as workspaceId, wm.user_id as userId, wm.role, wm.joined_at as joinedAt,
+             COALESCE(u.name, 'Team Member') as name,
+             COALESCE(u.email, 'member@workspace.com') as email,
+             COALESCE(u.avatar, 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=facearea&facepad=2.5&w=400&h=400&q=80') as avatar,
+             COALESCE(u.role, 'Financial Analyst') as title
+      FROM workspace_members wm
+      LEFT JOIN users u ON wm.user_id = u.id
+      WHERE wm.workspace_id = ?
+      ORDER BY 
+        CASE wm.role 
+          WHEN 'admin' THEN 1 
+          WHEN 'editor' THEN 2 
+          WHEN 'viewer' THEN 3 
+          ELSE 4 
+        END, wm.joined_at ASC
+    `)
+    .all(workspaceId) as any[];
+  return rows;
+}
+
+export function addWorkspaceMember(
+  workspaceId: string,
+  userId: string,
+  role: "admin" | "editor" | "viewer" = "editor"
+): string {
+  const existing = db
+    .prepare("SELECT id FROM workspace_members WHERE workspace_id = ? AND user_id = ?")
+    .get(workspaceId, userId) as any;
+  if (existing) {
+    db.prepare("UPDATE workspace_members SET role = ? WHERE id = ?").run(role, existing.id);
+    return existing.id;
+  }
+
+  const id = "wm_" + crypto.randomUUID();
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO workspace_members (id, workspace_id, user_id, role, joined_at)
+    VALUES (?, ?, ?, ?, ?)
+  `).run(id, workspaceId, userId, role, now);
+  return id;
 }

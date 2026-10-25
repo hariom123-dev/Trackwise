@@ -65,28 +65,28 @@ export async function generateVectorPDF(
   const contentWidth = pageWidth - marginX * 2; // 180mm
 
   const workspaceName = data.workspaceName || 'Global Enterprise Profile';
-  const industry = data.industry || 'SaaS';
-  const currencySymbol = data.currency === 'EUR' ? '€' : data.currency === 'GBP' ? '£' : data.currency === 'INR' ? '₹' : '$';
+  const industry = data.industry || 'B2B SaaS';
+  const currencySymbol = data.currency === 'USD' ? '$' : data.currency === 'EUR' ? '€' : data.currency === 'GBP' ? '£' : 'Rs. ';
   const reportDate = data.date || format(new Date(), 'MMMM d, yyyy');
 
   const metrics = data.metrics || {
-    revenue: 99200,
-    expenses: 56200,
-    margin: 43.3,
-    churnRate: 1.5,
-    customers: 2450,
+    revenue: 8000000,
+    expenses: 4500000,
+    margin: 43.8,
+    churnRate: 1.8,
+    customers: 420,
     ruleOf40: 48.3,
-    ltv: 66133,
+    ltv: 5333333,
     efficiencyScore: 88,
     riskLevel: 'Low',
   };
 
   const revenueStr = `${currencySymbol}${Math.round(metrics.revenue).toLocaleString()}`;
   const expensesStr = `${currencySymbol}${Math.round(metrics.expenses || metrics.revenue * 0.58).toLocaleString()}`;
-  const marginStr = `${(metrics.margin ?? 43.3).toFixed(1)}%`;
-  const churnStr = `${(metrics.churnRate ?? 1.5).toFixed(1)}%`;
+  const marginStr = `${(metrics.margin ?? 43.8).toFixed(1)}%`;
+  const churnStr = `${(metrics.churnRate ?? 1.8).toFixed(1)}%`;
   const ruleOf40Str = `${(metrics.ruleOf40 ?? 48.3).toFixed(1)}%`;
-  const customersStr = (metrics.customers || 2450).toLocaleString();
+  const customersStr = (metrics.customers || 420).toLocaleString();
 
   // =========================================================================
   // PAGE 1: EXECUTIVE BRIEFING & KEY METRICS
@@ -141,7 +141,7 @@ export async function generateVectorPDF(
   pdf.setFontSize(8.5);
   pdf.setTextColor(148, 163, 184); // slate-400
   pdf.text(
-    `Entity: ${workspaceName}  •  Industry: ${industry}  •  Currency: ${data.currency || 'USD'}  •  Model: AI Deterministic & Gemini`,
+    `Entity: ${workspaceName}  •  Industry: ${industry}  •  Currency: ${data.currency || 'INR'}  •  Model: AI Deterministic & Gemini`,
     marginX + 6,
     49
   );
@@ -155,10 +155,10 @@ export async function generateVectorPDF(
   const cardW = (contentWidth - cardGap * 3) / 4; // ~42.3mm
 
   const kpiCards = [
-    { label: 'MONTHLY REVENUE', value: revenueStr, sub: `${customersStr} accounts`, color: [16, 185, 129] },
+    { label: 'MONTHLY MRR', value: revenueStr, sub: `${customersStr} subscribers`, color: [16, 185, 129] },
     { label: 'OPERATING MARGIN', value: marginStr, sub: `${expensesStr} OPEX`, color: [79, 70, 229] },
-    { label: 'CUSTOMER CHURN', value: churnStr, sub: 'Monthly Attrition', color: [245, 158, 11] },
-    { label: 'RULE OF 40 SCORE', value: ruleOf40Str, sub: 'Top-Decile SaaS', color: [16, 185, 129] },
+    { label: 'ANNUAL CHURN', value: churnStr, sub: 'Monthly Net Churn %', color: [245, 158, 11] },
+    { label: 'RULE OF 40', value: ruleOf40Str, sub: 'Efficiency Benchmark', color: [16, 185, 129] },
   ];
 
   kpiCards.forEach((kpi, idx) => {
@@ -283,10 +283,10 @@ export async function generateVectorPDF(
     data.recommendations && data.recommendations.length > 0
       ? data.recommendations
       : [
-          `Tiered Pricing Expansion: Introduce enterprise usage tiers to accelerate ARPU expansion from ${currencySymbol}${(metrics.revenue / (metrics.customers || 2450)).toFixed(0)} toward high-LTV accounts.`,
-          `Retention Automation: Deploy cohort-triggered proactive health scoring to reduce monthly churn below ${(Math.max(0.8, (metrics.churnRate || 1.5) - 0.4)).toFixed(1)}%.`,
-          `Capital Reinvestment: Allocate up to 15% of net operating surplus into verified customer acquisition channels.`,
-          `COGS Optimization: Conduct vendor software and compute audits to trim 5-8% in recurring non-core overhead.`,
+          `Annual Contract Upgrades: Incentivize quarterly and annual prepayment discounting to accelerate ARR and lower payment gateway friction.`,
+          `Churn Prevention Triggers: Implement automated usage health monitoring to proactively alert account managers when tenant seat engagement drops.`,
+          `Enterprise Tier Expansion: Reinvest up to 15% of net operating surplus into dedicated compliance certifications (SOC2, ISO 27001) to unlock large contracts.`,
+          `Operating Cost Optimization: Audit cloud infrastructure (compute, vector databases) and software licenses to preserve operating margins above 40%.`,
         ];
 
   let currentRecY = recY + 6;
@@ -361,7 +361,7 @@ export async function generateVectorPDF(
   // -------------------------------------------------------------------------
   const tableY = 32;
   const colWidths = [42, 36, 32, 36, 34]; // Total = 180mm
-  const colHeaders = ['Projected Period', 'Projected Revenue', 'MoM Growth', 'Projected Expenses', 'Operating Margin'];
+  const colHeaders = ['Projected Period', 'Projected MRR', 'MoM Growth', 'Operating OPEX', 'Operating Margin'];
 
   // Table Header Row
   pdf.setFillColor(15, 23, 42); // slate-900
@@ -424,7 +424,7 @@ export async function generateVectorPDF(
     pdf.text(r.month, cellX + 3, rowY + 5);
     cellX += colWidths[0];
 
-    // Col 2: Revenue
+    // Col 2: Revenue / MRR
     pdf.setFont('helvetica', 'normal');
     pdf.text(`${currencySymbol}${r.revenue.toLocaleString()}`, cellX + 3, rowY + 5);
     cellX += colWidths[1];
@@ -435,7 +435,7 @@ export async function generateVectorPDF(
     pdf.setTextColor(51, 65, 85);
     cellX += colWidths[2];
 
-    // Col 4: Expenses
+    // Col 4: Expenses / Cost
     pdf.text(`${currencySymbol}${estExp.toLocaleString()}`, cellX + 3, rowY + 5);
     cellX += colWidths[3];
 
@@ -458,28 +458,28 @@ export async function generateVectorPDF(
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(8);
   pdf.setTextColor(15, 23, 42);
-  pdf.text('6-Month Cumulative Projected Scale:', marginX + 3, rowY + 5.5);
+  pdf.text('6-Month Cumulative Projected Revenue:', marginX + 3, rowY + 5.5);
   pdf.text(`${currencySymbol}${cumulativeRev.toLocaleString()}`, marginX + colWidths[0] + 3, rowY + 5.5);
 
   // -------------------------------------------------------------------------
-  // SaaS Unit Economics Scorecard Section
+  // Executive SaaS Unit Economics Scorecard Section
   // -------------------------------------------------------------------------
   const scorecardY = rowY + 16;
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(11);
   pdf.setTextColor(15, 23, 42);
-  pdf.text('ENTERPRISE UNIT ECONOMICS SCORECARD', marginX, scorecardY);
+  pdf.text('EXECUTIVE SAAS UNIT ECONOMICS SCORECARD', marginX, scorecardY);
 
-  const arpuCalc = metrics.customers && metrics.customers > 0 ? (metrics.revenue / metrics.customers).toFixed(2) : '40.49';
-  const ltvCalc = (metrics.ltv || 66133).toLocaleString();
+  const arpuCalc = metrics.customers && metrics.customers > 0 ? (metrics.revenue / metrics.customers).toFixed(2) : '19047.62';
+  const ltvCalc = (metrics.ltv || 5333333).toLocaleString();
 
   const unitEconCards = [
-    { title: 'Customer Lifetime Value (LTV)', value: `${currencySymbol}${ltvCalc}`, status: 'Healthy', note: 'Based on 1.5% monthly churn' },
-    { title: 'LTV : CAC Ratio', value: '4.2x', status: 'Elite (>3.0x)', note: 'Capital efficient expansion' },
-    { title: 'CAC Payback Period', value: '7.8 Months', status: 'Optimal (<12mo)', note: 'Fast liquidity recycling' },
-    { title: 'Net Burn Multiple', value: '0.00x', status: 'Self-Funded', note: 'Net operating cash positive' },
-    { title: 'Average Revenue Per User (ARPU)', value: `${currencySymbol}${arpuCalc}/mo`, status: 'Expanding', note: 'Core subscription tier' },
-    { title: 'Net Dollar Retention (NDR)', value: '114%', status: 'Expansion (>110%)', note: 'Strong negative churn momentum' },
+    { title: 'Average Revenue Per User (ARPU)', value: `${currencySymbol}${arpuCalc}/mo`, status: 'Healthy', note: 'Blended monthly ARPU' },
+    { title: 'LTV : CAC Multiple', value: '4.2x', status: 'Optimal (>3x)', note: 'Customer acquisition efficiency' },
+    { title: 'CAC Payback Horizon', value: '7.8 Months', status: 'Optimal (<12mo)', note: 'Time to capital recovery' },
+    { title: 'Net Monthly Cash Surplus', value: `${currencySymbol}${Math.round(metrics.revenue - (metrics.expenses || metrics.revenue * 0.58)).toLocaleString()}/mo`, status: 'Cash Flow +', note: 'Positive operating cash' },
+    { title: 'Customer Lifetime Value (LTV)', value: `${currencySymbol}${ltvCalc}`, status: 'Expanding', note: 'Calculated via ARPU & Churn' },
+    { title: 'Net Dollar Retention (NDR)', value: `${(100 - (metrics.churnRate || 1.8) + 8).toFixed(1)}%`, status: 'Optimal (>105%)', note: 'Expansion & seat upgrades' },
   ];
 
   const gridY = scorecardY + 5;

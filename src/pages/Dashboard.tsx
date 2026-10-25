@@ -63,6 +63,7 @@ import { useWorkspace } from '../context/WorkspaceContext';
 import { generateVectorPDF } from '../utils/vectorPdfGenerator';
 import UnitEconomicsScorecard from '../components/UnitEconomicsScorecard';
 import { exportMultiSheetExcel } from '../utils/excelExport';
+import { formatCurrency, formatCompactCurrency } from '../utils/currency';
 
 type TimeRange = '7d' | '30d' | '90d' | '12m';
 
@@ -206,12 +207,13 @@ export default function Dashboard() {
 
   // Calculate dynamic KPIs from actual records
   const kpiStats = useMemo(() => {
+    const currentCurrency = activeWorkspace?.currency || 'INR';
     if (filteredRecords.length === 0) {
       return [
-        { label: 'Total Revenue', value: '$99,200', change: '+12.5%', trend: 'up', icon: DollarSign, color: 'bg-emerald-50 text-emerald-600' },
-        { label: 'Active Customers', value: '2,450', change: '+8.2%', trend: 'up', icon: Users, color: 'bg-blue-50 text-blue-600' },
+        { label: 'Monthly Recurring Revenue (MRR)', value: formatCurrency(7936000, currentCurrency), change: '+12.5%', trend: 'up', icon: DollarSign, color: 'bg-emerald-50 text-emerald-600' },
+        { label: 'Active Subscriptions', value: '2,450', change: '+8.2%', trend: 'up', icon: Users, color: 'bg-blue-50 text-blue-600' },
         { label: 'Operating Margin', value: '43.3%', change: '+3.1%', trend: 'up', icon: Activity, color: 'bg-amber-50 text-amber-600' },
-        { label: 'Net Retention', value: '98.5%', change: '-0.2%', trend: 'up', icon: TrendingUp, color: 'bg-indigo-50 text-indigo-600' },
+        { label: 'Customer Retention Rate', value: '98.5%', change: 'Optimal', trend: 'up', icon: TrendingUp, color: 'bg-indigo-50 text-indigo-600' },
       ];
     }
 
@@ -226,15 +228,15 @@ export default function Dashboard() {
 
     return [
       {
-        label: timeRange === '12m' ? 'Annualized Revenue' : 'Period Revenue',
-        value: `$${(timeRange === '12m' ? totalRev : latest.revenue).toLocaleString()}`,
+        label: timeRange === '12m' ? 'Annualized ARR' : 'Monthly Recurring Revenue (MRR)',
+        value: formatCurrency(timeRange === '12m' ? totalRev : latest.revenue, currentCurrency),
         change: `${Number(revChange) >= 0 ? '+' : ''}${revChange}%`,
         trend: Number(revChange) >= 0 ? 'up' : 'down',
         icon: DollarSign,
         color: 'bg-emerald-50 text-emerald-600',
       },
       {
-        label: 'Active Customers',
+        label: 'Active Subscriptions',
         value: latest.customers.toLocaleString(),
         change: `${Number(custChange) >= 0 ? '+' : ''}${custChange}%`,
         trend: Number(custChange) >= 0 ? 'up' : 'down',
@@ -250,7 +252,7 @@ export default function Dashboard() {
         color: 'bg-amber-50 text-amber-600',
       },
       {
-        label: 'Net Retention Rate',
+        label: 'Customer Retention Rate',
         value: `${retention}%`,
         change: `${latest.churnRate < 2.0 ? 'Optimal' : 'Focus Area'}`,
         trend: latest.churnRate < 2.0 ? 'up' : 'down',
@@ -258,18 +260,19 @@ export default function Dashboard() {
         color: 'bg-indigo-50 text-indigo-600',
       },
     ];
-  }, [filteredRecords, timeRange]);
+  }, [filteredRecords, timeRange, activeWorkspace?.currency]);
 
   // Compute dynamic segments based on current total revenue
   const segments = useMemo(() => {
-    const latest = filteredRecords[filteredRecords.length - 1] || { revenue: 99200 };
+    const currentCurrency = activeWorkspace?.currency || 'INR';
+    const latest = filteredRecords[filteredRecords.length - 1] || { revenue: 7936000 };
     const rev = latest.revenue;
     return [
-      { name: 'Enterprise Cloud & SaaS', value: `$${Math.round(rev * 0.6).toLocaleString()}`, progress: 60, color: 'bg-indigo-600' },
-      { name: 'Mid-Market Subscriptions', value: `$${Math.round(rev * 0.28).toLocaleString()}`, progress: 28, color: 'bg-emerald-600' },
-      { name: 'Developer & API Usage', value: `$${Math.round(rev * 0.12).toLocaleString()}`, progress: 12, color: 'bg-amber-600' },
+      { name: 'Enterprise Multi-Seat Contracts', value: formatCurrency(Math.round(rev * 0.6), currentCurrency), progress: 60, color: 'bg-indigo-600' },
+      { name: 'Mid-Market Growth Tiers', value: formatCurrency(Math.round(rev * 0.28), currentCurrency), progress: 28, color: 'bg-emerald-600' },
+      { name: 'Self-Serve Developer Subscriptions', value: formatCurrency(Math.round(rev * 0.12), currentCurrency), progress: 12, color: 'bg-amber-600' },
     ];
-  }, [filteredRecords]);
+  }, [filteredRecords, activeWorkspace?.currency]);
 
   // Compute system alerts dynamically
   const alerts = useMemo(() => {
@@ -570,6 +573,7 @@ export default function Dashboard() {
                 100
               : 5.0
           }
+          currency={activeWorkspace?.currency || 'INR'}
         />
       )}
 
@@ -610,10 +614,10 @@ export default function Dashboard() {
             <div>
               <div className="flex items-center gap-2">
                 <TrendingUp size={16} className="text-indigo-600" />
-                <h3 className="font-bold text-slate-900 text-sm">Revenue Growth & Trend Forecast</h3>
+                <h3 className="font-bold text-slate-900 text-sm">Financial Trajectory & AI Projections</h3>
               </div>
               <p className="text-[11px] text-slate-400 font-medium mt-0.5">
-                Multi-period financial telemetry plotted with AI projected trajectory
+                Multi-period ledger plotted with AI projected ARR/MRR trajectory
               </p>
             </div>
 
@@ -662,7 +666,7 @@ export default function Dashboard() {
                   axisLine={false}
                   tickLine={false}
                   tick={{ fill: '#64748b', fontSize: 11, fontWeight: 600 }}
-                  tickFormatter={(val) => `$${val / 1000}k`}
+                  tickFormatter={(val) => formatCompactCurrency(val, activeWorkspace?.currency || 'INR')}
                 />
                 <Tooltip
                   contentStyle={{
@@ -671,8 +675,8 @@ export default function Dashboard() {
                     boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)',
                   }}
                   formatter={(val: any, name: any) => [
-                    val ? `$${Number(val).toLocaleString()}` : 'N/A',
-                    name === 'revenue' ? 'Actual Revenue' : name === 'expenses' ? 'Expenses' : name === 'forecast' ? 'AI Forecast' : name,
+                    val ? formatCurrency(Number(val), activeWorkspace?.currency || 'INR') : 'N/A',
+                    name === 'revenue' ? 'Actual MRR' : name === 'expenses' ? 'Operating Expenses' : name === 'forecast' ? 'AI Projected MRR' : name,
                   ]}
                 />
                 <Legend
@@ -684,7 +688,7 @@ export default function Dashboard() {
                 <Area
                   type="monotone"
                   dataKey="revenue"
-                  name="Historical Revenue"
+                  name="Actual MRR"
                   stroke="#4f46e5"
                   strokeWidth={2.5}
                   fill="url(#gradRev)"
@@ -693,7 +697,7 @@ export default function Dashboard() {
                 <Line
                   type="monotone"
                   dataKey="expenses"
-                  name="Operational Expenses"
+                  name="Operating Expenses"
                   stroke="#94a3b8"
                   strokeWidth={2}
                   strokeDasharray="4 4"
@@ -703,7 +707,7 @@ export default function Dashboard() {
                 <Line
                   type="monotone"
                   dataKey="forecast"
-                  name="AI Forecasted Target"
+                  name="AI Projected MRR"
                   stroke="#10b981"
                   strokeWidth={2.5}
                   strokeDasharray="6 6"
@@ -790,7 +794,7 @@ export default function Dashboard() {
               <div className="flex justify-between items-center pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <PieChart size={18} className="text-indigo-600" />
-                  <h3 className="text-base font-bold text-slate-900">Revenue Contribution by Segment</h3>
+                  <h3 className="text-base font-bold text-slate-900">Revenue Contribution by Subscription Tier</h3>
                 </div>
                 <button
                   onClick={() => setIsSegmentModalOpen(false)}
@@ -902,7 +906,7 @@ export default function Dashboard() {
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
                       <div className="p-2.5 bg-slate-50 rounded-lg">
                         <p className="text-[10px] font-bold text-slate-400">REVENUE</p>
-                        <p className="font-bold text-slate-900">${selectedAnalysis.inputData.revenue?.toLocaleString()}</p>
+                        <p className="font-bold text-slate-900">{formatCurrency(selectedAnalysis.inputData.revenue || 0, activeWorkspace?.currency || 'INR')}</p>
                       </div>
                       <div className="p-2.5 bg-slate-50 rounded-lg">
                         <p className="text-[10px] font-bold text-slate-400">CUSTOMERS</p>

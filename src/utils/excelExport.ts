@@ -27,13 +27,13 @@ export function exportMultiSheetExcel(
     const churn = Number(r.churnRate ?? r.churn_rate) || 0;
     return {
       Period: r.period || 'Unknown',
-      Revenue_USD: rev,
-      Expenses_USD: exp,
-      Active_Customers: Number(r.customers) || 0,
-      Churn_Rate_Pct: churn,
-      Net_Operating_Income_USD: rev - exp,
+      Monthly_Recurring_Revenue_INR: rev,
+      Operating_Expenses_INR: exp,
+      Active_Subscribers: Number(r.customers) || 0,
+      Net_Monthly_Churn_Pct: churn,
+      Net_Operating_Surplus_INR: rev - exp,
       Operating_Margin_Pct: rev > 0 ? Number((((rev - exp) / rev) * 100).toFixed(1)) : 0,
-      Industry: r.industry || 'SaaS',
+      Industry: r.industry || 'B2B SaaS',
     };
   });
 
@@ -43,13 +43,13 @@ export function exportMultiSheetExcel(
       : [
           {
             Period: '2026-04',
-            Revenue_USD: 99200,
-            Expenses_USD: 56200,
-            Active_Customers: 2450,
-            Churn_Rate_Pct: 1.5,
-            Net_Operating_Income_USD: 43000,
-            Operating_Margin_Pct: 43.3,
-            Industry: 'SaaS',
+            Monthly_Recurring_Revenue_INR: 8000000,
+            Operating_Expenses_INR: 4500000,
+            Active_Subscribers: 420,
+            Net_Monthly_Churn_Pct: 1.8,
+            Net_Operating_Surplus_INR: 3500000,
+            Operating_Margin_Pct: 43.8,
+            Industry: 'B2B SaaS',
           },
         ]
   );
@@ -62,10 +62,10 @@ export function exportMultiSheetExcel(
     const profit = Number(f.simulatedProfit) || Math.round(simulated * 0.43);
     return {
       Forecast_Month: f.month || `Month +${i + 1}`,
-      Baseline_Revenue_USD: baseline,
-      Simulated_Scenario_Revenue_USD: simulated,
-      Projected_Net_Operating_Profit_USD: profit,
-      Revenue_Expansion_Delta_USD: simulated - baseline,
+      Baseline_MRR_INR: baseline,
+      Simulated_MRR_INR: simulated,
+      Projected_Net_Surplus_INR: profit,
+      MRR_Expansion_Delta_INR: simulated - baseline,
     };
   });
 
@@ -75,45 +75,45 @@ export function exportMultiSheetExcel(
       : [
           {
             Forecast_Month: 'May 2026',
-            Baseline_Revenue_USD: 104160,
-            Simulated_Scenario_Revenue_USD: 104160,
-            Projected_Net_Operating_Profit_USD: 45000,
-            Revenue_Expansion_Delta_USD: 0,
+            Baseline_MRR_INR: 8400000,
+            Simulated_MRR_INR: 8400000,
+            Projected_Net_Surplus_INR: 3650000,
+            MRR_Expansion_Delta_INR: 0,
           },
           {
             Forecast_Month: 'Jun 2026',
-            Baseline_Revenue_USD: 109368,
-            Simulated_Scenario_Revenue_USD: 109368,
-            Projected_Net_Operating_Profit_USD: 47200,
-            Revenue_Expansion_Delta_USD: 0,
+            Baseline_MRR_INR: 8820000,
+            Simulated_MRR_INR: 8820000,
+            Projected_Net_Surplus_INR: 3840000,
+            MRR_Expansion_Delta_INR: 0,
           },
           {
             Forecast_Month: 'Jul 2026',
-            Baseline_Revenue_USD: 114836,
-            Simulated_Scenario_Revenue_USD: 114836,
-            Projected_Net_Operating_Profit_USD: 49500,
-            Revenue_Expansion_Delta_USD: 0,
+            Baseline_MRR_INR: 9260000,
+            Simulated_MRR_INR: 9260000,
+            Projected_Net_Surplus_INR: 4030000,
+            MRR_Expansion_Delta_INR: 0,
           },
           {
             Forecast_Month: 'Aug 2026',
-            Baseline_Revenue_USD: 120578,
-            Simulated_Scenario_Revenue_USD: 120578,
-            Projected_Net_Operating_Profit_USD: 52000,
-            Revenue_Expansion_Delta_USD: 0,
+            Baseline_MRR_INR: 9720000,
+            Simulated_MRR_INR: 9720000,
+            Projected_Net_Surplus_INR: 4230000,
+            MRR_Expansion_Delta_INR: 0,
           },
           {
             Forecast_Month: 'Sep 2026',
-            Baseline_Revenue_USD: 126607,
-            Simulated_Scenario_Revenue_USD: 126607,
-            Projected_Net_Operating_Profit_USD: 54600,
-            Revenue_Expansion_Delta_USD: 0,
+            Baseline_MRR_INR: 10210000,
+            Simulated_MRR_INR: 10210000,
+            Projected_Net_Surplus_INR: 4450000,
+            MRR_Expansion_Delta_INR: 0,
           },
           {
             Forecast_Month: 'Oct 2026',
-            Baseline_Revenue_USD: 132937,
-            Simulated_Scenario_Revenue_USD: 132937,
-            Projected_Net_Operating_Profit_USD: 57300,
-            Revenue_Expansion_Delta_USD: 0,
+            Baseline_MRR_INR: 10720000,
+            Simulated_MRR_INR: 10720000,
+            Projected_Net_Surplus_INR: 4670000,
+            MRR_Expansion_Delta_INR: 0,
           },
         ]
   );
@@ -122,58 +122,58 @@ export function exportMultiSheetExcel(
   // Sheet 3: Unit_Economics_Summary
   const summaryData = [
     {
-      Metric: 'Rule of 40 Score',
+      Metric: 'Rule of 40 Efficiency Score',
       Calculated_Value: `${scorecard.ruleOf40}%`,
       Industry_Benchmark: '> 40.0%',
-      CFO_Evaluation: scorecard.ruleOf40Status,
+      Evaluation: scorecard.ruleOf40Status,
     },
     {
-      Metric: 'Monthly Operating Margin',
+      Metric: 'Operating Margin',
       Calculated_Value: `${scorecard.margin.toFixed(1)}%`,
       Industry_Benchmark: '> 25.0%',
-      CFO_Evaluation: scorecard.margin > 35 ? 'Elite Operating Efficiency' : 'Healthy',
+      Evaluation: scorecard.margin > 35 ? 'High Operating Margin' : 'Healthy',
     },
     {
-      Metric: 'Monthly Churn Rate',
+      Metric: 'Monthly Churn %',
       Calculated_Value: `${scorecard.churnRate.toFixed(1)}%`,
-      Industry_Benchmark: '< 3.0%',
-      CFO_Evaluation: scorecard.churnRate < 2.0 ? 'Top Quartile Retention' : 'Focus Area',
+      Industry_Benchmark: '< 2.0%',
+      Evaluation: scorecard.churnRate < 2.0 ? 'Top Tier SaaS Retention' : 'Focus Area',
     },
     {
       Metric: 'Average Revenue Per User (ARPU)',
-      Calculated_Value: `$${scorecard.arpu.toFixed(2)}/mo`,
+      Calculated_Value: `₹${scorecard.arpu.toFixed(2)}/mo`,
       Industry_Benchmark: 'N/A',
-      CFO_Evaluation: 'Subscription Normalized',
+      Evaluation: 'Monthly Blended ARPU',
     },
     {
       Metric: 'Customer Lifetime Value (LTV)',
-      Calculated_Value: `$${scorecard.ltv.toLocaleString()}`,
-      Industry_Benchmark: '> $2,000',
-      CFO_Evaluation: 'Strong Long-Term Capital Generation',
+      Calculated_Value: `₹${scorecard.ltv.toLocaleString()}`,
+      Industry_Benchmark: '> ₹5,00,000',
+      Evaluation: 'Strong Long-Term Value',
     },
     {
       Metric: 'LTV : CAC Multiple',
       Calculated_Value: scorecard.ltvCac,
       Industry_Benchmark: '> 3.0x',
-      CFO_Evaluation: 'Capital Efficient Acquisition',
+      Evaluation: 'Efficient Go-To-Market Engine',
     },
     {
-      Metric: 'Estimated CAC Payback Period',
+      Metric: 'CAC Payback Horizon',
       Calculated_Value: scorecard.payback,
       Industry_Benchmark: '< 12 Months',
-      CFO_Evaluation: 'Rapid Capital Recovery',
+      Evaluation: 'Rapid Capital Recovery',
     },
     {
-      Metric: 'Monthly Net Operating Surplus',
-      Calculated_Value: `$${scorecard.netSurplus.toLocaleString()}/mo`,
-      Industry_Benchmark: '> $0',
-      CFO_Evaluation: 'Self-Sustaining Operations',
+      Metric: 'Monthly Net Cash Surplus',
+      Calculated_Value: `₹${scorecard.netSurplus.toLocaleString()}/mo`,
+      Industry_Benchmark: '> ₹0',
+      Evaluation: 'Self-Funded Organic Growth',
     },
     {
-      Metric: 'Capital Runway',
+      Metric: 'Operating Runway',
       Calculated_Value: scorecard.runway,
       Industry_Benchmark: '> 18 Months',
-      CFO_Evaluation: 'Zero Emergency Dilution Risk',
+      Evaluation: 'Zero Cash Flow Stress',
     },
   ];
 
@@ -181,5 +181,5 @@ export function exportMultiSheetExcel(
   XLSX.utils.book_append_sheet(wb, wsSummary, 'Unit_Economics_Summary');
 
   const dateStr = new Date().toISOString().split('T')[0];
-  XLSX.writeFile(wb, `TrackWise_Enterprise_Financial_Model_${dateStr}.xlsx`);
+  XLSX.writeFile(wb, `TrackWise_Executive_SaaS_Financial_Model_${dateStr}.xlsx`);
 }

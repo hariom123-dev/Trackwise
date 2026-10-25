@@ -20,6 +20,7 @@ import {
 import { motion, AnimatePresence } from 'motion/react';
 import { apiFetch } from '../utils/api';
 import { useWorkspace } from '../context/WorkspaceContext';
+import { formatCurrency } from '../utils/currency';
 import { toast } from 'sonner';
 
 export interface ChatMessage {
@@ -57,8 +58,8 @@ const QUICK_PROMPTS = [
     icon: AlertCircle,
   },
   {
-    label: "Simulate Bridge to $250k MRR",
-    query: "How much do I need to cut churn to hit $250k MRR?",
+    label: "Simulate Bridge to ₹2 Cr MRR",
+    query: "How much do I need to cut churn to hit ₹2 Cr MRR?",
     icon: ArrowUpRight,
   },
   {
@@ -79,11 +80,11 @@ export default function AICopilotDrawer({ isOpen, onClose }: AICopilotDrawerProp
 
   // Latest telemetry snapshot for top KPI badges
   const latestSnapshot = messages.slice().reverse().find((m) => m.metricsSnapshot)?.metricsSnapshot || {
-    revenue: 99200,
-    expenses: 56200,
-    margin: 43.3,
-    churn: 1.5,
-    customers: 2450,
+    revenue: 8000000,
+    expenses: 4500000,
+    margin: 43.8,
+    churn: 1.8,
+    customers: 420,
     ruleOf40: 55.3,
   };
 
@@ -344,7 +345,7 @@ export default function AICopilotDrawer({ isOpen, onClose }: AICopilotDrawerProp
             <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between gap-2 overflow-x-auto text-[11px] shrink-0">
               <div className="flex items-center gap-1.5 font-semibold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200/80 shadow-2xs">
                 <span className="text-slate-400 uppercase tracking-wider text-[9px]">MRR:</span>
-                <span className="text-emerald-600 font-bold">${latestSnapshot.revenue.toLocaleString()}</span>
+                <span className="text-emerald-600 font-bold">{formatCurrency(latestSnapshot.revenue, activeWorkspace?.currency || 'INR')}</span>
               </div>
               <div className="flex items-center gap-1.5 font-semibold text-slate-700 bg-white px-2.5 py-1 rounded-lg border border-slate-200/80 shadow-2xs">
                 <span className="text-slate-400 uppercase tracking-wider text-[9px]">Margin:</span>

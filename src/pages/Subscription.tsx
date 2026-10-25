@@ -34,17 +34,17 @@ export default function Subscription() {
         halfyearly: 55000,
         yearly: 99000,
       },
-      usdEquiv: {
-        monthly: '~$119 / mo',
-        halfyearly: '~$110 / mo',
-        yearly: '~$99 / mo',
+      inrMonthlyEquiv: {
+        monthly: '₹9,900 / mo',
+        halfyearly: '₹9,166 / mo (save 7%)',
+        yearly: '₹8,250 / mo (save 20%)',
       },
       features: [
         'Up to 10M Historical Data Rows',
-        'Continuous ML Trend & Churn Analysis',
+        'Continuous ML Trend & Net Churn Analysis',
         'Custom Executive PDF Strategy Exports',
         'Developer API Access (10k calls/mo)',
-        'Priority Email & Community Support',
+        'Priority Slack & Community Support',
       ],
       color: 'bg-white',
       textColor: 'text-indigo-950',
@@ -53,24 +53,24 @@ export default function Subscription() {
     {
       id: 'enterprise',
       name: 'Enterprise',
-      description: 'Advanced features, dedicated modeling capacity, and SLA compliance for large operations.',
+      description: 'Advanced features, multi-workspace modeling capacity, and SLA compliance for enterprise operations.',
       prices: {
         monthly: 24900,
         halfyearly: 125000,
         yearly: 225000,
       },
-      usdEquiv: {
-        monthly: '~$299 / mo',
-        halfyearly: '~$250 / mo',
-        yearly: '~$225 / mo',
+      inrMonthlyEquiv: {
+        monthly: '₹24,900 / mo',
+        halfyearly: '₹20,833 / mo (save 16%)',
+        yearly: '₹18,750 / mo (save 25%)',
       },
       features: [
         'Unlimited Data Ingestion & Storage',
         'Real-Time Predictive Forecast Engine',
-        'Priority Dedicated Financial Analyst',
-        'White-Label Executive Dashboards',
-        'SSO & SOC2 Enterprise Compliance',
-        '24/7 Phone & Slack SLA Guarantee',
+        'Dedicated Enterprise Account Strategist',
+        'Multi-Workspace Executive Dashboards',
+        'SSO & GST Invoicing Compliance',
+        '24/7 Dedicated Priority SLA Guarantee',
       ],
       color: 'bg-slate-900',
       textColor: 'text-white',
@@ -297,7 +297,7 @@ export default function Subscription() {
                   </span>
                 </div>
                 <p className="text-[11px] text-slate-400 mb-6 font-medium">
-                  {plan.usdEquiv[interval]} • Includes full API access
+                  {plan.inrMonthlyEquiv[interval]} • Includes full API access
                 </p>
 
                 <p

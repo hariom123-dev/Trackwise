@@ -221,18 +221,18 @@ export default function Landing() {
                   {accountingMode === 'accrual' && (
                     <div className="space-y-3">
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Earned Revenue (GAAP)</p>
-                        <p className="text-2xl font-black text-slate-900 mt-0.5">$1,420,000</p>
-                        <p className="text-[11px] text-slate-500 font-medium mt-1">Recognized when services delivered, regardless of cash timing.</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Gross Transaction Value (GTV)</p>
+                        <p className="text-2xl font-black text-slate-900 mt-0.5">₹14,20,000</p>
+                        <p className="text-[11px] text-slate-500 font-medium mt-1">Total store sales booked across counter POS and online orders.</p>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-100">
-                          <p className="text-[10px] font-bold text-emerald-800 uppercase">Recognized Invoices</p>
-                          <p className="text-sm font-extrabold text-emerald-950 mt-0.5">$1.18M</p>
+                          <p className="text-[10px] font-bold text-emerald-800 uppercase">Settled Invoices</p>
+                          <p className="text-sm font-extrabold text-emerald-950 mt-0.5">₹11.8L</p>
                         </div>
                         <div className="p-2.5 rounded-xl bg-indigo-50/60 border border-indigo-100">
-                          <p className="text-[10px] font-bold text-indigo-800 uppercase">Accounts Receivable</p>
-                          <p className="text-sm font-extrabold text-indigo-950 mt-0.5">$240,000</p>
+                          <p className="text-[10px] font-bold text-indigo-800 uppercase">Pending Khata Credit</p>
+                          <p className="text-sm font-extrabold text-indigo-950 mt-0.5">₹2,40,000</p>
                         </div>
                       </div>
                     </div>
@@ -241,18 +241,18 @@ export default function Landing() {
                   {accountingMode === 'cash' && (
                     <div className="space-y-3">
                       <div className="p-3 rounded-xl bg-slate-50 border border-slate-200/80">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cash Received (Bank Receipts)</p>
-                        <p className="text-2xl font-black text-slate-900 mt-0.5">$1,180,000</p>
-                        <p className="text-[11px] text-slate-500 font-medium mt-1">Direct cash inflows collected during period.</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Cash & UPI Settlements (Bank Receipts)</p>
+                        <p className="text-2xl font-black text-slate-900 mt-0.5">₹11,80,000</p>
+                        <p className="text-[11px] text-slate-500 font-medium mt-1">Direct merchant payments deposited into account.</p>
                       </div>
                       <div className="grid grid-cols-2 gap-2">
                         <div className="p-2.5 rounded-xl bg-slate-100 border border-slate-200">
-                          <p className="text-[10px] font-bold text-slate-600 uppercase">Cash Expenses</p>
-                          <p className="text-sm font-extrabold text-slate-900 mt-0.5">$740,000</p>
+                          <p className="text-[10px] font-bold text-slate-600 uppercase">Inventory & Operating Cost</p>
+                          <p className="text-sm font-extrabold text-slate-900 mt-0.5">₹7,40,000</p>
                         </div>
                         <div className="p-2.5 rounded-xl bg-emerald-50/60 border border-emerald-100">
-                          <p className="text-[10px] font-bold text-emerald-800 uppercase">Net Cash Flow</p>
-                          <p className="text-sm font-extrabold text-emerald-950 mt-0.5">+$440,000</p>
+                          <p className="text-[10px] font-bold text-emerald-800 uppercase">Net Store Surplus</p>
+                          <p className="text-sm font-extrabold text-emerald-950 mt-0.5">+₹4,40,000</p>
                         </div>
                       </div>
                     </div>
@@ -261,22 +261,22 @@ export default function Landing() {
                   {accountingMode === 'variance' && (
                     <div className="space-y-3">
                       <div className="p-3 rounded-xl bg-amber-50/70 border border-amber-200/80">
-                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Timing Gap (Uncollected)</p>
-                        <p className="text-2xl font-black text-amber-950 mt-0.5">+$240,000</p>
-                        <p className="text-[11px] text-amber-800 font-medium mt-1">Accrual Revenue earned but awaiting customer cash settlement.</p>
+                        <p className="text-[10px] font-bold uppercase tracking-wider text-amber-800">Timing Gap (Pending Settlement)</p>
+                        <p className="text-2xl font-black text-amber-950 mt-0.5">+₹2,40,000</p>
+                        <p className="text-[11px] text-amber-800 font-medium mt-1">Sales earned awaiting UPI payment gateway settlement.</p>
                       </div>
                       <div className="p-2.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
                         <div className="flex justify-between font-semibold text-slate-600">
-                          <span>Accrual Net Margin:</span>
+                          <span>Store Operating Margin:</span>
                           <span className="text-slate-900 font-bold">38.2%</span>
                         </div>
                         <div className="flex justify-between font-semibold text-slate-600">
-                          <span>Cash Net Margin:</span>
+                          <span>Settled Cash Margin:</span>
                           <span className="text-slate-900 font-bold">37.2%</span>
                         </div>
                         <div className="flex justify-between font-semibold text-slate-600">
-                          <span>Deferred Revenue Balance:</span>
-                          <span className="text-indigo-700 font-bold">$95,000</span>
+                          <span>Pending Khata Balance:</span>
+                          <span className="text-indigo-700 font-bold">₹95,000</span>
                         </div>
                       </div>
                     </div>
@@ -386,7 +386,7 @@ export default function Landing() {
               />
               <div className="absolute bottom-3 right-3 bg-slate-950/90 backdrop-blur-md px-3.5 py-2 rounded-lg border border-slate-800 flex items-center gap-2.5">
                 <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                <span className="text-xs font-extrabold text-emerald-400">$1.4M Projected Growth</span>
+                <span className="text-xs font-extrabold text-emerald-400">₹14,00,000 Projected Sales</span>
               </div>
             </div>
           </div>
@@ -463,15 +463,15 @@ export default function Landing() {
                   <span className="text-slate-500 text-xs font-medium">/ month</span>
                 </div>
                 <p className="text-[11px] text-slate-400 font-medium mb-6">
-                  {isAnnual ? 'Billed annually (₹99,000/yr • ~$99/mo)' : 'Billed monthly (₹9,900/mo • ~$119/mo)'}
+                  {isAnnual ? 'Billed annually (₹99,000/yr • ₹8,250/mo)' : 'Billed monthly (₹9,900/mo)'}
                 </p>
                 <ul className="space-y-3 mb-8">
                   {[
-                    "Up to 10M Historical Data Rows",
-                    "ML Trend & Churn Forecasts",
+                    "Up to 10M Historical Ledger Rows",
+                    "ML Trend & Drop-off Forecasts",
                     "Custom Executive PDF Strategy Exports",
                     "Developer API Access (10k calls/mo)",
-                    "Email & Dedicated Analyst Support"
+                    "WhatsApp & Dedicated Support"
                   ].map((feat, i) => (
                     <li key={i} className="flex items-center gap-2.5 text-xs text-slate-600 font-medium">
                       <CheckCircle2 size={16} className="text-emerald-600 shrink-0" />
@@ -500,16 +500,16 @@ export default function Landing() {
                   <span className="text-slate-400 text-xs font-medium">/ month</span>
                 </div>
                 <p className="text-[11px] text-slate-400 font-medium mb-6">
-                  {isAnnual ? 'Billed annually (₹225,000/yr • ~$225/mo)' : 'Billed monthly (₹24,900/mo • ~$299/mo)'}
+                  {isAnnual ? 'Billed annually (₹2,25,000/yr • ₹18,750/mo)' : 'Billed monthly (₹24,900/mo)'}
                 </p>
                 <ul className="space-y-3 mb-8">
                   {[
-                    "Unlimited Multi-Row Data Ingestion",
+                    "Unlimited Multi-Row Ledger Ingestion",
                     "Real-Time Predictive Forecast Engine",
-                    "White-Label Executive Dashboards",
-                    "Dedicated Senior Analyst Support",
-                    "SSO & SOC2 Enterprise Compliance",
-                    "24/7 Priority Phone & Slack SLA"
+                    "Multi-Outlet Executive Dashboards",
+                    "Dedicated Senior Retail Analyst Support",
+                    "SSO & GST Invoicing Compliance",
+                    "24/7 Priority Phone & WhatsApp SLA"
                   ].map((feat, i) => (
                     <li key={i} className="flex items-center gap-2.5 text-xs text-slate-200 font-medium">
                       <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />

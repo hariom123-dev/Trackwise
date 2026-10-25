@@ -24,30 +24,29 @@ interface WorkspaceSwitcherProps {
 
 const getIndustryIcon = (industry: string) => {
   const norm = (industry || '').toLowerCase();
+  if (norm.includes('kirana') || norm.includes('grocery')) return ShoppingBag;
+  if (norm.includes('f&b') || norm.includes('restaurant')) return Activity;
+  if (norm.includes('electronic') || norm.includes('mobile')) return Sparkles;
+  if (norm.includes('apparel') || norm.includes('fashion')) return Layers;
+  if (norm.includes('service')) return Briefcase;
   if (norm.includes('saas') || norm.includes('software')) return Briefcase;
   if (norm.includes('e-com') || norm.includes('retail')) return ShoppingBag;
-  if (norm.includes('fintech') || norm.includes('finance')) return Landmark;
-  if (norm.includes('health') || norm.includes('bio')) return Activity;
-  if (norm.includes('edtech') || norm.includes('educat')) return GraduationCap;
-  if (norm.includes('logistic') || norm.includes('supply')) return Truck;
   return Building2;
 };
 
 const INDUSTRY_OPTIONS = [
-  { value: 'SaaS', label: 'SaaS / B2B Software' },
-  { value: 'E-commerce', label: 'E-commerce / DTC Retail' },
-  { value: 'Fintech', label: 'Fintech & Financial Services' },
-  { value: 'Healthcare', label: 'Healthcare & Biotech' },
-  { value: 'EdTech', label: 'EdTech & Learning' },
-  { value: 'Logistics', label: 'Logistics & Supply Chain' },
-  { value: 'General Business', label: 'General Enterprise' },
+  { value: 'Kirana / Grocery', label: 'Kirana / Grocery Store' },
+  { value: 'F&B / Restaurant', label: 'F&B / Restaurant & Cafe' },
+  { value: 'Electronics / Mobile', label: 'Electronics & Mobile Retail' },
+  { value: 'Apparel', label: 'Apparel & Fashion Boutique' },
+  { value: 'Services', label: 'Services & Local Merchant' },
 ];
 
 const CURRENCY_OPTIONS = [
+  { value: 'INR', label: 'INR (₹) - Indian Rupee (Default)' },
   { value: 'USD', label: 'USD ($) - US Dollar' },
   { value: 'EUR', label: 'EUR (€) - Euro' },
   { value: 'GBP', label: 'GBP (£) - British Pound' },
-  { value: 'INR', label: 'INR (₹) - Indian Rupee' },
   { value: 'CAD', label: 'CAD ($) - Canadian Dollar' },
 ];
 
@@ -59,8 +58,8 @@ export default function WorkspaceSwitcher({ className = '' }: WorkspaceSwitcherP
 
   // Modal form states
   const [name, setName] = useState('');
-  const [industry, setIndustry] = useState('SaaS');
-  const [currency, setCurrency] = useState('USD');
+  const [industry, setIndustry] = useState('Kirana / Grocery');
+  const [currency, setCurrency] = useState('INR');
 
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -98,8 +97,8 @@ export default function WorkspaceSwitcher({ className = '' }: WorkspaceSwitcherP
         currency,
       });
       setName('');
-      setIndustry('SaaS');
-      setCurrency('USD');
+      setIndustry('Kirana / Grocery');
+      setCurrency('INR');
       setIsModalOpen(false);
       setIsOpen(false);
     } catch {
@@ -133,7 +132,7 @@ export default function WorkspaceSwitcher({ className = '' }: WorkspaceSwitcherP
                 <span>{activeWorkspace?.industry || 'Enterprise'}</span>
                 <span>•</span>
                 <span className="uppercase text-[9px] font-semibold text-slate-400">
-                  {activeWorkspace?.currency || 'USD'}
+                  {activeWorkspace?.currency || 'INR'}
                 </span>
               </div>
             </div>
